@@ -1,69 +1,62 @@
-%% API key management for the current tenant.
+%% Handler for tenant-scoped API key management.
 %%
-%% Routes (scoped to the authenticated tenant):
-%%   GET    /v1/apikeys      — list own keys
-%%   POST   /v1/apikeys      — create a new key
-%%   DELETE /v1/apikeys/:id  — revoke a key
+%% Routes:
+%%   GET    /v1/tenants/:tenant_id/api-keys            — list keys (admin)
+%%   POST   /v1/tenants/:tenant_id/api-keys            — create key (admin)
+%%   DELETE /v1/tenants/:tenant_id/api-keys/:key_id    — revoke key (admin)
 %%
-%% For admin cross-tenant key management see gp_api_h_tenant_apikeys.
--module(gp_api_h_apikeys).
+%% All operations require the "admin" scope.
+-module(gp_api_h_tenant_apikeys).
 -export([init/2]).
 
-%% Kept for backward compat — gp_api_key_store owns the ETS table now.
--export([lookup_by_token/1, lookup_scopes/1, init_table/0]).
-
-lookup_by_token(Token) ->
-    case gp_api_key_store:lookup_by_token(Token) of
-        {ok, #{tenant_id := TId}} -> {ok, TId};
-        {error, _} = E            -> E
+init(Req0, Opts) ->
+    case gp_api_auth:require_scope(Req0, <<"admin">>) of
+        ok ->
+            Method = cowboy_req:method(Req0),
+            handle(Method, Req0, Opts);
+        {stop, _Code} ->
+            {ok, Req0, Opts}
     end.
 
-lookup_scopes(Token) ->
-    gp_api_key_store:lookup_scopes(Token).
-
-%% No-op: ETS table is now managed by gp_api_key_store.
-init_table() -> ok.
-
-init(Req0, Opts) ->
-    Method = cowboy_req:method(Req0),
-    handle(Method, Req0, Opts).
-
-%% POST /v1/apikeys  — create a key for the current tenant
+%% POST /v1/tenants/:tenant_id/api-keys
 handle(<<"POST">>, Req0, Opts) ->
+    TargetTenant = cowboy_req:binding(tenant_id, Req0),
     {ok, Body, Req1} = cowboy_req:read_body(Req0),
-    TenantId = get_tenant(Req1),
-    Params   = decode_body(Body),
-    Name     = maps:get(<<"name">>,   Params, <<"default">>),
-    Scopes   = valid_scopes(maps:get(<<"scopes">>, Params, [<<"*">>])),
-    case gp_api_key_store:put(TenantId, Name, Scopes, <<"self">>) of
+    Params = decode_body(Body),
+    Name   = maps:get(<<"name">>,   Params, <<"default">>),
+    Scopes = valid_scopes(maps:get(<<"scopes">>, Params, [<<"*">>])),
+    CallerTenantId = maps:get(tenant_id, Req1, <<"admin">>),
+    case gp_api_key_store:put(TargetTenant, Name, Scopes, CallerTenantId) of
         {ok, Token, KeyId} ->
             Now = erlang:system_time(millisecond),
             reply_json(201, #{
                 <<"id">>         => KeyId,
                 <<"key">>        => Token,
                 <<"name">>       => Name,
-                <<"tenant_id">>  => TenantId,
+                <<"tenant_id">>  => TargetTenant,
                 <<"scopes">>     => Scopes,
                 <<"created_at">> => Now,
                 <<"note">>       => <<"Store the key value — it will not be shown again.">>
             }, Req1, Opts)
     end;
 
-%% GET /v1/apikeys  — list key metadata for current tenant
+%% GET /v1/tenants/:tenant_id/api-keys
 handle(<<"GET">>, Req0, Opts) ->
-    TenantId = get_tenant(Req0),
-    Items    = gp_api_key_store:list(TenantId),
-    reply_json(200, #{<<"items">> => Items}, Req0, Opts);
+    TargetTenant = cowboy_req:binding(tenant_id, Req0),
+    Items = gp_api_key_store:list(TargetTenant),
+    reply_json(200, #{<<"items">> => Items, <<"tenant_id">> => TargetTenant},
+               Req0, Opts);
 
-%% DELETE /v1/apikeys/:id  — revoke a key
+%% DELETE /v1/tenants/:tenant_id/api-keys/:key_id
 handle(<<"DELETE">>, Req0, Opts) ->
-    case cowboy_req:binding(id, Req0) of
+    TargetTenant = cowboy_req:binding(tenant_id, Req0),
+    KeyId        = cowboy_req:binding(key_id, Req0),
+    case KeyId of
         undefined ->
             gp_api_error:reply(Req0, 400, validation_error, <<"key_id required">>),
             {ok, Req0, Opts};
-        KeyId ->
-            TenantId = get_tenant(Req0),
-            case gp_api_key_store:delete(TenantId, KeyId) of
+        _ ->
+            case gp_api_key_store:delete(TargetTenant, KeyId) of
                 ok ->
                     Req = cowboy_req:reply(204, #{}, <<>>, Req0),
                     {ok, Req, Opts};
@@ -80,10 +73,6 @@ handle(<<"DELETE">>, Req0, Opts) ->
 handle(_, Req0, Opts) ->
     Req = cowboy_req:reply(405, #{}, <<>>, Req0),
     {ok, Req, Opts}.
-
-get_tenant(Req) ->
-    maps:get(tenant_id, Req,
-             list_to_binary(gp_config:get_str("GP_TENANT_ID", "default"))).
 
 decode_body(<<>>) -> #{};
 decode_body(B) ->

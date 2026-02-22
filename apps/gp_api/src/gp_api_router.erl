@@ -35,9 +35,12 @@ routes() ->
         {"/v1/dlq/:id",                        gp_api_h_dlq,       #{}},
         %% SSE stream
         {"/v1/stream",                         gp_api_h_stream,    #{}},
-        %% API Keys (multi-tenant)
-        {"/v1/apikeys",                        gp_api_h_apikeys,   #{}},
-        {"/v1/apikeys/:id",                    gp_api_h_apikeys,   #{}},
+        %% API Keys — current tenant self-service
+        {"/v1/apikeys",                              gp_api_h_apikeys,         #{}},
+        {"/v1/apikeys/:id",                          gp_api_h_apikeys,         #{}},
+        %% API Keys — admin cross-tenant management
+        {"/v1/tenants/:tenant_id/api-keys",          gp_api_h_tenant_apikeys,  #{}},
+        {"/v1/tenants/:tenant_id/api-keys/:key_id",  gp_api_h_tenant_apikeys,  #{}},
         %% Dev inbox
         {"/v1/dev/inbox",                      gp_api_h_dev_inbox, #{}},
         {"/v1/dev/inbox/ui",                   gp_api_h_dev_inbox, #{action => ui}},

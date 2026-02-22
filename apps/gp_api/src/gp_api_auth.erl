@@ -46,24 +46,18 @@ extract_token(Req) ->
     end.
 
 verify_token(Token) ->
-    SingleTenantMode = gp_config:get_bool(<<"GP_SINGLE_TENANT">>, true),
+    AdminKey      = list_to_binary(gp_config:get_str("GP_ADMIN_KEY", "")),
+    EnvKey        = list_to_binary(gp_config:get_str("GP_API_KEY", "dev-secret")),
+    DefaultTenant = list_to_binary(gp_config:get_str("GP_TENANT_ID", "default")),
     if
-        SingleTenantMode ->
-            ApiKey = list_to_binary(gp_config:get_str(<<"GP_API_KEY">>, "dev-secret")),
-            if
-                Token =:= ApiKey ->
-                    TenantId = list_to_binary(
-                        gp_config:get_str(<<"GP_TENANT_ID">>, "default")),
-                    {ok, TenantId};
-                true ->
-                    %% Also check dynamically created API keys
-                    gp_api_h_apikeys:lookup_by_token(Token)
-            end;
+        AdminKey =/= <<>> andalso Token =:= AdminKey ->
+            {ok, DefaultTenant};
+        Token =:= EnvKey ->
+            {ok, DefaultTenant};
         true ->
-            %% Multi-tenant: check ETS-backed key store first
-            case gp_api_h_apikeys:lookup_by_token(Token) of
-                {ok, _} = R -> R;
-                {error, _}  -> gp_api_tenants:verify(Token)
+            case gp_api_key_store:lookup_by_token(Token) of
+                {ok, #{tenant_id := TId}} -> {ok, TId};
+                {error, not_found}        -> {error, unauthorized}
             end
     end.
 
@@ -82,15 +76,22 @@ require_scope(Req, Scope) ->
             {stop, 403}
     end.
 
-%% Get scopes for a token (default: all scopes for legacy env-var key)
+%% Get scopes for a token.
+%%   GP_ADMIN_KEY  → [<<"admin">>, <<"*">>]  (all scopes + admin-only ops)
+%%   GP_API_KEY    → [<<"*">>]               (all scopes, backward compat)
+%%   dynamic key   → whatever was set at creation
 get_scopes(Token) ->
-    ApiKey = list_to_binary(gp_config:get_str(<<"GP_API_KEY">>, "dev-secret")),
-    case Token =:= ApiKey of
-        true  -> [<<"*">>];
-        false ->
-            case catch gp_api_h_apikeys:lookup_scopes(Token) of
-                Scopes when is_list(Scopes) -> Scopes;
-                _                           -> [<<"*">>]
+    AdminKey = list_to_binary(gp_config:get_str("GP_ADMIN_KEY", "")),
+    EnvKey   = list_to_binary(gp_config:get_str("GP_API_KEY", "dev-secret")),
+    if
+        AdminKey =/= <<>> andalso Token =:= AdminKey ->
+            [<<"admin">>, <<"*">>];
+        Token =:= EnvKey ->
+            [<<"*">>];
+        true ->
+            case gp_api_key_store:lookup_scopes(Token) of
+                []     -> [];
+                Scopes -> Scopes
             end
     end.
 

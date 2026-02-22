@@ -8,4 +8,8 @@ start_link() ->
 
 init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 5, period => 10},
-    {ok, {SupFlags, []}}.
+    KeyStore = #{id      => gp_api_key_store,
+                 start   => {gp_api_key_store, start_link, []},
+                 restart => permanent,
+                 type    => worker},
+    {ok, {SupFlags, [KeyStore]}}.
