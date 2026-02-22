@@ -10,7 +10,7 @@
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Instead, email **security@gatepulse.dev** with:
+Instead, use [GitHub private vulnerability reporting](https://github.com/saidmashhud/gatepulse/security/advisories/new) with:
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact

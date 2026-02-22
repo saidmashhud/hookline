@@ -26,7 +26,7 @@ docker-compose up -d
 curl -X POST http://localhost:8080/v1/endpoints \
   -H "Authorization: Bearer dev-secret" \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://webhook.site/YOUR-ID","enabled":true,"secret":"my-secret"}'
+  -d '{"url":"http://localhost:3001/webhook","enabled":true,"secret":"my-secret"}'
 
 # Create a subscription (endpoint → topic)
 curl -X POST http://localhost:8080/v1/subscriptions \

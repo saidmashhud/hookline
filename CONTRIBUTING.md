@@ -13,19 +13,14 @@ Thank you for your interest in contributing! 🎉
 ### Getting Started
 
 ```bash
-git clone https://github.com/your-org/gatepulse.git
+git clone https://github.com/saidmashhud/gatepulse.git
 cd gatepulse
 
-# Build C daemon
-cd c && make && make test && cd ..
+# Build everything and run all tests
+make test
 
-# Build Erlang
-rebar3 compile
-rebar3 eunit
-
-# Run locally (requires gp_store running)
-./c/build/gp_store /tmp/gp_store.sock /tmp/gp_data &
-rebar3 shell
+# Run locally
+make dev
 ```
 
 ## Workflow
@@ -33,7 +28,7 @@ rebar3 shell
 1. **Fork** the repository
 2. **Create a branch**: `git checkout -b feat/my-feature`
 3. **Write tests** for new functionality
-4. **Ensure all tests pass**: `cd c && make test && cd .. && rebar3 eunit`
+4. **Ensure all tests pass**: `make test`
 5. **Open a pull request** against `main`
 
 ## Code Style
@@ -72,5 +67,5 @@ test: add queue lease reap tests
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/your-org/gatepulse/discussions) or
-join our [community chat](https://discord.gg/gatepulse).
+Open a [GitHub Issue](https://github.com/saidmashhud/gatepulse/issues) or start a
+[GitHub Discussion](https://github.com/saidmashhud/gatepulse/discussions).
