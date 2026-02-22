@@ -6,6 +6,7 @@
     list_events/2,
     enqueue_job/1,
     claim_jobs/2,
+    claim_jobs/3,
     ack_job/1,
     nack_job/2,
     put_dlq/1,
@@ -66,6 +67,13 @@ claim_jobs(MaxCount, LeaseSecs) ->
     call(<<"store.claim_jobs">>, #{
         <<"max_count">>  => MaxCount,
         <<"lease_secs">> => LeaseSecs
+    }).
+
+claim_jobs(MaxCount, LeaseSecs, TenantId) ->
+    call(<<"store.claim_jobs">>, #{
+        <<"max_count">>  => MaxCount,
+        <<"lease_secs">> => LeaseSecs,
+        <<"tenant_id">>  => TenantId
     }).
 
 ack_job(JobId) ->

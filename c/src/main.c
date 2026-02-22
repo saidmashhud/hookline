@@ -85,6 +85,86 @@ static hl_queue_t g_queue;
 static hl_dlq_t   g_dlq;
 static volatile int g_running = 1;
 
+/* ---------- tenant event secondary index ----------
+ * Maps tenant_id → ordered list of hl_offset_t (chronological).
+ * Built during recovery; updated on every append_event.
+ * Enables O(tenant_events) list_events instead of O(all_events).
+ */
+#define HL_TEIDX_BUCKETS 256
+
+typedef struct {
+    char         tenant_id[64];
+    hl_offset_t *offsets;
+    int          count;
+    int          cap;
+} hl_tenant_events_t;
+
+typedef struct hl_teidx_node {
+    hl_tenant_events_t        te;
+    struct hl_teidx_node     *next;
+} hl_teidx_node_t;
+
+static hl_teidx_node_t *g_teidx[HL_TEIDX_BUCKETS];
+
+static unsigned teidx_hash(const char *s) {
+    unsigned h = 5381;
+    while (*s) h = ((h << 5) + h) ^ (unsigned char)*s++;
+    return h % HL_TEIDX_BUCKETS;
+}
+
+static hl_tenant_events_t *teidx_get(const char *tenant_id) {
+    unsigned h = teidx_hash(tenant_id);
+    hl_teidx_node_t *n = g_teidx[h];
+    while (n) {
+        if (strcmp(n->te.tenant_id, tenant_id) == 0) return &n->te;
+        n = n->next;
+    }
+    return NULL;
+}
+
+static hl_tenant_events_t *teidx_get_or_create(const char *tenant_id) {
+    hl_tenant_events_t *te = teidx_get(tenant_id);
+    if (te) return te;
+    hl_teidx_node_t *n = calloc(1, sizeof(*n));
+    if (!n) return NULL;
+    strncpy(n->te.tenant_id, tenant_id, sizeof(n->te.tenant_id) - 1);
+    n->te.cap     = 64;
+    n->te.offsets = malloc(sizeof(hl_offset_t) * (size_t)n->te.cap);
+    if (!n->te.offsets) { free(n); return NULL; }
+    unsigned h    = teidx_hash(tenant_id);
+    n->next       = g_teidx[h];
+    g_teidx[h]   = n;
+    return &n->te;
+}
+
+static void teidx_add(const char *tenant_id, hl_offset_t off) {
+    if (!tenant_id || !tenant_id[0]) return;
+    hl_tenant_events_t *te = teidx_get_or_create(tenant_id);
+    if (!te) return;
+    if (te->count == te->cap) {
+        int newcap = te->cap * 2;
+        hl_offset_t *tmp = realloc(te->offsets,
+                                   sizeof(hl_offset_t) * (size_t)newcap);
+        if (!tmp) return;
+        te->offsets = tmp;
+        te->cap     = newcap;
+    }
+    te->offsets[te->count++] = off;
+}
+
+static void teidx_free(void) {
+    for (int b = 0; b < HL_TEIDX_BUCKETS; b++) {
+        hl_teidx_node_t *n = g_teidx[b];
+        while (n) {
+            hl_teidx_node_t *nx = n->next;
+            free(n->te.offsets);
+            free(n);
+            n = nx;
+        }
+        g_teidx[b] = NULL;
+    }
+}
+
 static void handle_signal(int sig) { (void)sig; g_running = 0; }
 
 /* ---------- crash recovery ----------
@@ -146,9 +226,15 @@ static void recover_from_store(void) {
 
             switch (type) {
                 case HL_TYPE_EVENT: {
-                    char event_id[64] = {0};
-                    json_str((char *)payload, "event_id", event_id, sizeof(event_id));
-                    if (event_id[0]) { hl_index_put(&g_index, event_id, off); events_recovered++; }
+                    char event_id[64]    = {0};
+                    char ev_tenant[64]   = {0};
+                    json_str((char *)payload, "event_id",  event_id,  sizeof(event_id));
+                    json_str((char *)payload, "tenant_id", ev_tenant, sizeof(ev_tenant));
+                    if (event_id[0]) {
+                        hl_index_put(&g_index, event_id, off);
+                        events_recovered++;
+                    }
+                    if (ev_tenant[0]) teidx_add(ev_tenant, off);
                     break;
                 }
                 case HL_TYPE_ENDPOINT: {
@@ -257,10 +343,12 @@ static void dispatch(int client_fd, const char *json) {
     json_str(json, "cmd", cmd, sizeof(cmd));
 
     if (strcmp(cmd, "store.append_event") == 0) {
-        char event_id[64] = {0};
+        char event_id[64]  = {0};
+        char tenant_id[64] = {0};
         char payload_val[65536] = {0};
-        json_str(json, "event_id", event_id, sizeof(event_id));
-        json_str(json, "payload",  payload_val, sizeof(payload_val));
+        json_str(json, "event_id",  event_id,  sizeof(event_id));
+        json_str(json, "tenant_id", tenant_id, sizeof(tenant_id));
+        json_str(json, "payload",   payload_val, sizeof(payload_val));
 
         hl_offset_t off;
         int rc = hl_store_append(&g_store, HL_TYPE_EVENT,
@@ -268,6 +356,7 @@ static void dispatch(int client_fd, const char *json) {
                                  (uint32_t)strlen(payload_val), &off);
         if (rc == 0) {
             hl_index_put(&g_index, event_id, off);
+            if (tenant_id[0]) teidx_add(tenant_id, off);
             char resp[128];
             snprintf(resp, sizeof(resp),
                      "{\"ok\":true,\"segment\":%u,\"offset\":%llu}",
@@ -278,8 +367,10 @@ static void dispatch(int client_fd, const char *json) {
         }
 
     } else if (strcmp(cmd, "store.get_event") == 0) {
-        char event_id[64] = {0};
-        json_str(json, "event_id", event_id, sizeof(event_id));
+        char event_id[64]  = {0};
+        char tenant_id[64] = {0};
+        json_str(json, "event_id",  event_id,  sizeof(event_id));
+        json_str(json, "tenant_id", tenant_id, sizeof(tenant_id));
         hl_offset_t off;
         if (hl_index_get(&g_index, event_id, &off) != 0) {
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
@@ -289,6 +380,16 @@ static void dispatch(int client_fd, const char *json) {
         if (hl_store_read(&g_store, off, &payload, &plen, &type) != 0) {
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"read failed\"}");
             return;
+        }
+        /* Tenant isolation: verify the stored event belongs to the caller */
+        if (tenant_id[0]) {
+            char ev_tenant[64] = {0};
+            json_str((char *)payload, "tenant_id", ev_tenant, sizeof(ev_tenant));
+            if (strcmp(ev_tenant, tenant_id) != 0) {
+                free(payload);
+                hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
+                return;
+            }
         }
         char *resp = malloc(plen + 32);
         if (resp) {
@@ -321,8 +422,10 @@ static void dispatch(int client_fd, const char *json) {
 
     } else if (strcmp(cmd, "store.claim_jobs") == 0) {
         int max_count = 10, lease_secs = 30;
+        char claim_tenant[64] = {0};
         json_int(json, "max_count",  &max_count);
         json_int(json, "lease_secs", &lease_secs);
+        json_str(json, "tenant_id",  claim_tenant, sizeof(claim_tenant));
 
         hl_queue_reap_leases(&g_queue);
 
@@ -331,7 +434,8 @@ static void dispatch(int client_fd, const char *json) {
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"oom\"}");
             return;
         }
-        int n = hl_queue_claim(&g_queue, claimed, max_count, lease_secs);
+        int n = hl_queue_claim_tenant(&g_queue, claimed, max_count, lease_secs,
+                                      claim_tenant[0] ? claim_tenant : NULL);
 
         char *resp = malloc((size_t)n * 256 + 64);
         if (!resp) { free(claimed); hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"oom\"}"); return; }
@@ -560,8 +664,8 @@ static void dispatch(int client_fd, const char *json) {
         hl_ipc_send_str(client_fd, "{\"ok\":true}");
 
     } else if (strcmp(cmd, "store.list_events") == 0) {
-        char tenant_id[64] = {0};
-        char after_id[64]  = {0};
+        char tenant_id[64]  = {0};
+        char after_id[64]   = {0};
         char cursor_str[64] = {0};
         int limit = 50;
         int64_t from_ms = 0, to_ms = INT64_MAX;
@@ -572,83 +676,55 @@ static void dispatch(int client_fd, const char *json) {
         from_ms = json_int64(json, "from_ms", 0);
         to_ms   = json_int64(json, "to_ms",   INT64_MAX);
 
-        uint32_t start_seg = 0;
-        uint64_t start_off = 0;
-        int skip_after_id  = 0;
-
-        if (after_id[0]) {
-            hl_offset_t aoff;
-            if (hl_index_get(&g_index, after_id, &aoff) == 0) {
-                start_seg = aoff.segment;
-                start_off = aoff.offset;
-                skip_after_id = 1;
-            }
-        } else if (cursor_str[0]) {
-            parse_cursor(cursor_str, &start_seg, &start_off);
-        }
-
         char *resp = malloc(4 * 1024 * 1024);
         if (!resp) { hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"oom\"}"); return; }
         int pos = sprintf(resp, "{\"ok\":true,\"items\":[");
         int first = 1, count = 0;
         char next_cursor[64] = {0};
 
-        for (int seg = (int)start_seg; seg <= g_store.current_seg; seg++) {
-            char path[512];
-            snprintf(path, sizeof(path), "%s/seg-%06d.gps", g_store.data_dir, seg);
-            int fd = open(path, O_RDONLY);
-            if (fd < 0) break;
+        if (tenant_id[0]) {
+            /* Fast path: use secondary index — O(tenant_events) instead of O(all) */
+            hl_tenant_events_t *te = teidx_get(tenant_id);
+            int start_i = 0;
 
-            uint64_t cur_offset = 0;
-            if (seg == (int)start_seg && start_off > 0) {
-                lseek(fd, (off_t)start_off, SEEK_SET);
-                cur_offset = start_off;
-            }
-
-            int done_seg = 0;
-            for (;;) {
-                uint8_t hdr[HL_RECORD_HEADER_SIZE];
-                if (read(fd, hdr, HL_RECORD_HEADER_SIZE) != HL_RECORD_HEADER_SIZE) break;
-                uint32_t magic_be; memcpy(&magic_be, hdr, 4);
-                if (ntohl(magic_be) != HL_MAGIC) break;
-                uint8_t type = hdr[5];
-                uint32_t plen_be; memcpy(&plen_be, hdr + 6, 4);
-                uint32_t plen = ntohl(plen_be);
-
-                uint8_t *payload = malloc(plen + 1);
-                if (!payload) { done_seg = 1; break; }
-                if ((uint32_t)read(fd, payload, plen) != plen) { free(payload); break; }
-                payload[plen] = '\0';
-                uint32_t crc_be;
-                if (read(fd, &crc_be, 4) != 4) { free(payload); break; }
-
-                uint64_t this_off = cur_offset;
-                cur_offset += HL_RECORD_HEADER_SIZE + plen + HL_RECORD_FOOTER_SIZE;
-
-                if (type == HL_TYPE_EVENT) {
-                    /* skip the after_id record itself */
-                    if (skip_after_id && (uint32_t)seg == start_seg && this_off == start_off) {
-                        free(payload);
-                        skip_after_id = 0;
-                        continue;
+            if (te) {
+                if (after_id[0]) {
+                    hl_offset_t aoff;
+                    if (hl_index_get(&g_index, after_id, &aoff) == 0) {
+                        for (int i = 0; i < te->count; i++) {
+                            if (te->offsets[i].segment == aoff.segment &&
+                                te->offsets[i].offset  == aoff.offset) {
+                                start_i = i + 1; break;
+                            }
+                        }
                     }
-
-                    char ev_tenant[64] = {0};
-                    json_str((char *)payload, "tenant_id", ev_tenant, sizeof(ev_tenant));
-                    if (tenant_id[0] && strcmp(ev_tenant, tenant_id) != 0) {
-                        free(payload); continue;
+                } else if (cursor_str[0]) {
+                    uint32_t cseg; uint64_t coff;
+                    if (parse_cursor(cursor_str, &cseg, &coff) == 0) {
+                        for (int i = 0; i < te->count; i++) {
+                            if (te->offsets[i].segment == cseg &&
+                                te->offsets[i].offset  == coff) {
+                                start_i = i; break;
+                            }
+                        }
                     }
+                }
 
-                    int64_t oat = json_int64((char *)payload, "occurred_at", 0);
-                    if (oat < from_ms) { free(payload); continue; }
-                    if (to_ms != INT64_MAX && oat > to_ms) { free(payload); continue; }
-
+                for (int i = start_i; i < te->count; i++) {
                     if (count >= limit) {
                         snprintf(next_cursor, sizeof(next_cursor), "%u:%llu",
-                                 (uint32_t)seg, (unsigned long long)this_off);
-                        free(payload);
-                        done_seg = 1;
+                                 te->offsets[i].segment,
+                                 (unsigned long long)te->offsets[i].offset);
                         break;
+                    }
+                    uint8_t *payload = NULL; uint32_t plen; uint8_t rtype;
+                    if (hl_store_read(&g_store, te->offsets[i],
+                                     &payload, &plen, &rtype) != 0) continue;
+                    if (rtype != HL_TYPE_EVENT) { free(payload); continue; }
+
+                    int64_t oat = json_int64((char *)payload, "occurred_at", 0);
+                    if (oat < from_ms || (to_ms != INT64_MAX && oat > to_ms)) {
+                        free(payload); continue;
                     }
 
                     if ((size_t)(pos + plen + 8) < 4 * 1024 * 1024) {
@@ -658,11 +734,90 @@ static void dispatch(int client_fd, const char *json) {
                         first = 0;
                         count++;
                     }
+                    free(payload);
                 }
-                free(payload);
             }
-            close(fd);
-            if (done_seg) break;
+        } else {
+            /* Full scan path: no tenant filter (admin / cross-tenant queries) */
+            uint32_t start_seg = 0;
+            uint64_t start_off = 0;
+            int skip_after_id  = 0;
+
+            if (after_id[0]) {
+                hl_offset_t aoff;
+                if (hl_index_get(&g_index, after_id, &aoff) == 0) {
+                    start_seg = aoff.segment;
+                    start_off = aoff.offset;
+                    skip_after_id = 1;
+                }
+            } else if (cursor_str[0]) {
+                parse_cursor(cursor_str, &start_seg, &start_off);
+            }
+
+            for (int seg = (int)start_seg; seg <= g_store.current_seg; seg++) {
+                char path[512];
+                snprintf(path, sizeof(path), "%s/seg-%06d.gps", g_store.data_dir, seg);
+                int fd = open(path, O_RDONLY);
+                if (fd < 0) break;
+
+                uint64_t cur_offset = 0;
+                if (seg == (int)start_seg && start_off > 0) {
+                    lseek(fd, (off_t)start_off, SEEK_SET);
+                    cur_offset = start_off;
+                }
+
+                int done_seg = 0;
+                for (;;) {
+                    uint8_t hdr[HL_RECORD_HEADER_SIZE];
+                    if (read(fd, hdr, HL_RECORD_HEADER_SIZE) != HL_RECORD_HEADER_SIZE) break;
+                    uint32_t magic_be; memcpy(&magic_be, hdr, 4);
+                    if (ntohl(magic_be) != HL_MAGIC) break;
+                    uint8_t type = hdr[5];
+                    uint32_t plen_be; memcpy(&plen_be, hdr + 6, 4);
+                    uint32_t plen = ntohl(plen_be);
+
+                    uint8_t *payload = malloc(plen + 1);
+                    if (!payload) { done_seg = 1; break; }
+                    if ((uint32_t)read(fd, payload, plen) != plen) { free(payload); break; }
+                    payload[plen] = '\0';
+                    uint32_t crc_be;
+                    if (read(fd, &crc_be, 4) != 4) { free(payload); break; }
+
+                    uint64_t this_off = cur_offset;
+                    cur_offset += HL_RECORD_HEADER_SIZE + plen + HL_RECORD_FOOTER_SIZE;
+
+                    if (type == HL_TYPE_EVENT) {
+                        if (skip_after_id && (uint32_t)seg == start_seg &&
+                            this_off == start_off) {
+                            free(payload);
+                            skip_after_id = 0;
+                            continue;
+                        }
+                        int64_t oat = json_int64((char *)payload, "occurred_at", 0);
+                        if (oat < from_ms) { free(payload); continue; }
+                        if (to_ms != INT64_MAX && oat > to_ms) { free(payload); continue; }
+
+                        if (count >= limit) {
+                            snprintf(next_cursor, sizeof(next_cursor), "%u:%llu",
+                                     (uint32_t)seg, (unsigned long long)this_off);
+                            free(payload);
+                            done_seg = 1;
+                            break;
+                        }
+
+                        if ((size_t)(pos + plen + 8) < 4 * 1024 * 1024) {
+                            if (!first) pos += sprintf(resp + pos, ",");
+                            memcpy(resp + pos, payload, plen);
+                            pos += plen;
+                            first = 0;
+                            count++;
+                        }
+                    }
+                    free(payload);
+                }
+                close(fd);
+                if (done_seg) break;
+            }
         }
 
         if (next_cursor[0])
@@ -860,16 +1015,19 @@ static void dispatch(int client_fd, const char *json) {
         free(resp);
 
     } else if (strcmp(cmd, "store.queue_stats") == 0) {
-        /* Count pending and inflight jobs in the in-memory queue */
+        char qs_tenant[64] = {0};
+        json_str(json, "tenant_id", qs_tenant, sizeof(qs_tenant));
         int pending = 0, inflight = 0;
         hl_job_t *j = g_queue.head;
         while (j) {
-            if (j->state == HL_JOB_STATE_PENDING) {
+            if (qs_tenant[0] && strcmp(j->tenant_id, qs_tenant) != 0) {
+                j = j->next; continue;
+            }
+            if (j->state == HL_JOB_STATE_PENDING ||
+                j->state == HL_JOB_STATE_NACKED) {
                 pending++;
             } else if (j->state == HL_JOB_STATE_CLAIMED) {
                 inflight++;
-            } else if (j->state == HL_JOB_STATE_NACKED) {
-                pending++;  /* waiting for retry */
             }
             j = j->next;
         }
@@ -1035,6 +1193,7 @@ int main(int argc, char *argv[]) {
     hl_index_free(&g_index);
     hl_queue_free(&g_queue);
     hl_dlq_free(&g_dlq);
+    teidx_free();
 
     fprintf(stdout, "hl_store exited cleanly\n");
     return 0;

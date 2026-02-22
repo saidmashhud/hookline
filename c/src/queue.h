@@ -42,6 +42,9 @@ int  hl_queue_enqueue(hl_queue_t *q, const hl_job_t *job);
 /* Claim up to max_count jobs, returns count actually claimed */
 int  hl_queue_claim(hl_queue_t *q, hl_job_t **out, int max_count,
                     int lease_secs);
+/* Claim jobs belonging to a specific tenant; pass NULL/empty to claim any */
+int  hl_queue_claim_tenant(hl_queue_t *q, hl_job_t **out, int max_count,
+                           int lease_secs, const char *tenant_id);
 int  hl_queue_ack(hl_queue_t *q, const char *job_id);
 int  hl_queue_nack(hl_queue_t *q, const char *job_id, int delay_secs);
 int  hl_queue_reap_leases(hl_queue_t *q);  /* re-queue expired leases */
