@@ -1,0 +1,12 @@
+{application, gp_stream, [
+    {description, "GatePulse SSE Stream"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {gp_stream_app, []}},
+    {applications, [
+        kernel, stdlib,
+        cowboy
+    ]},
+    {env, []},
+    {modules, []}
+]}.

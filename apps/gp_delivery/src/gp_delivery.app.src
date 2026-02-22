@@ -1,0 +1,16 @@
+{application, gp_delivery, [
+    {description, "GatePulse Webhook Delivery Engine"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {gp_delivery_app, []}},
+    {applications, [
+        kernel, stdlib,
+        gun,
+        jsx,
+        prometheus,
+        gp_core,
+        gp_store_client
+    ]},
+    {env, []},
+    {modules, []}
+]}.

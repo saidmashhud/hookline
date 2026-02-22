@@ -1,0 +1,12 @@
+{application, gp_store_client, [
+    {description, "GatePulse Store Client (UNIX socket IPC)"},
+    {vsn, "0.1.0"},
+    {registered, [gp_store_pool]},
+    {mod, {gp_store_client_app, []}},
+    {applications, [
+        kernel, stdlib,
+        jsx
+    ]},
+    {env, []},
+    {modules, []}
+]}.

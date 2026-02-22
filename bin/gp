@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+# gp — GatePulse CLI
+set -euo pipefail
+
+GP_URL="${GP_URL:-http://localhost:8080}"
+GP_API_KEY="${GP_API_KEY:-dev-secret}"
+
+usage() {
+  cat <<EOF
+Usage: gp <command> [options]
+
+Commands:
+  endpoints add   --url URL [--secret S] [--timeout MS] [--rps N] [--inflight N]
+  endpoints ls
+  endpoints get   --id ID
+  endpoints rm    --id ID
+
+  subs add        --endpoint ID --topic PATTERN
+  subs ls         [--endpoint ID]
+  subs rm         --id ID
+
+  events publish  --topic TOPIC [--payload JSON | --file FILE] [--key IDEM_KEY]
+  events ls       [--topic T] [--limit N]
+  events get      --id ID
+
+  deliveries ls   [--event ID] [--endpoint ID] [--limit N]
+  deliveries get  --id ID
+
+  replay          [--event ID] [--endpoint ID] [--topic T] [--from MS] [--to MS] [--mode all|failed_only]
+
+  dlq ls          [--endpoint ID]
+  dlq requeue     --id ID
+  dlq rm          --id ID
+
+  stream          [--topic PATTERN]
+
+  inbox create
+  inbox messages  --token TOKEN [--id MSG_ID]
+
+  admin stats
+  admin compact
+  admin audit     [--limit N]
+  admin pause
+  admin resume
+
+  store snapshot create  [--dest DIR]
+  store snapshot restore --from DIR
+
+  init            [--url URL] [--key API_KEY]
+  doctor
+  tail            [--endpoint ID] [--topic PATTERN]
+
+Environment:
+  GP_URL      Base URL (default: http://localhost:8080)
+  GP_API_KEY  API key  (default: dev-secret)
+EOF
+}
+
+auth_header() { echo "Authorization: Bearer ${GP_API_KEY}"; }
+ct_header()   { echo "Content-Type: application/json"; }
+
+gp_get()  { curl -s -H "$(auth_header)" "${GP_URL}$1"; }
+gp_post() { curl -s -X POST -H "$(auth_header)" -H "$(ct_header)" -d "$2" "${GP_URL}$1"; }
+gp_patch(){ curl -s -X PATCH -H "$(auth_header)" -H "$(ct_header)" -d "$2" "${GP_URL}$1"; }
+gp_del()  { curl -s -X DELETE -H "$(auth_header)" "${GP_URL}$1"; }
+
+cmd="${1:-}"
+sub="${2:-}"
+shift 2 2>/dev/null || true
+
+parse_args() {
+  declare -gA ARGS
+  while [[ $# -gt 0 ]]; do
+    key="${1#--}"; val="${2:-}"
+    ARGS[$key]="$val"
+    shift 2
+  done
+}
+
+require_arg() {
+  [[ -n "${ARGS[$1]+x}" ]] || { echo "Error: --$1 required" >&2; exit 1; }
+  echo "${ARGS[$1]}"
+}
+
+case "$cmd" in
+  endpoints)
+    case "$sub" in
+      add)
+        parse_args "$@"
+        url=$(require_arg url)
+        body=$(jq -n \
+          --arg url "$url" \
+          --arg secret "${ARGS[secret]:-}" \
+          --argjson timeout "${ARGS[timeout]:-5000}" \
+          --argjson rps "${ARGS[rps]:-50}" \
+          --argjson inflight "${ARGS[inflight]:-10}" \
+          '{url:$url,secret:$secret,timeout_ms:$timeout,rate_limit_rps:$rps,max_in_flight:$inflight,enabled:true}')
+        gp_post "/v1/endpoints" "$body" | jq .
+        ;;
+      ls)
+        gp_get "/v1/endpoints" | jq .
+        ;;
+      get)
+        parse_args "$@"; id=$(require_arg id)
+        gp_get "/v1/endpoints/$id" | jq .
+        ;;
+      rm)
+        parse_args "$@"; id=$(require_arg id)
+        gp_del "/v1/endpoints/$id"; echo "Deleted"
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  subs)
+    case "$sub" in
+      add)
+        parse_args "$@"
+        ep=$(require_arg endpoint); topic=$(require_arg topic)
+        body=$(jq -n --arg ep "$ep" --arg t "$topic" '{endpoint_id:$ep,topic_pattern:$t}')
+        gp_post "/v1/subscriptions" "$body" | jq .
+        ;;
+      ls)
+        parse_args "$@"
+        qs="${ARGS[endpoint]:+?endpoint_id=${ARGS[endpoint]}}"
+        gp_get "/v1/subscriptions${qs:-}" | jq .
+        ;;
+      rm)
+        parse_args "$@"; id=$(require_arg id)
+        gp_del "/v1/subscriptions/$id"; echo "Deleted"
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  events)
+    case "$sub" in
+      publish)
+        parse_args "$@"
+        topic=$(require_arg topic)
+        if [[ -n "${ARGS[file]:-}" ]]; then
+          payload=$(cat "${ARGS[file]}")
+        else
+          payload="${ARGS[payload]:-{}}"
+        fi
+        body=$(jq -n \
+          --arg topic "$topic" \
+          --argjson payload "$payload" \
+          --arg key "${ARGS[key]:-}" \
+          'if $key != "" then {topic:$topic,payload:$payload,idempotency_key:$key}
+           else {topic:$topic,payload:$payload} end')
+        gp_post "/v1/events" "$body" | jq .
+        ;;
+      ls)
+        parse_args "$@"
+        limit="${ARGS[limit]:-20}"
+        qs="?limit=$limit"
+        [[ -n "${ARGS[topic]:-}" ]] && qs+="&topic=${ARGS[topic]}"
+        gp_get "/v1/events$qs" | jq .
+        ;;
+      get)
+        parse_args "$@"; id=$(require_arg id)
+        gp_get "/v1/events/$id" | jq .
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  deliveries)
+    case "$sub" in
+      ls)
+        parse_args "$@"
+        qs="?limit=${ARGS[limit]:-20}"
+        [[ -n "${ARGS[event]:-}" ]]    && qs+="&event_id=${ARGS[event]}"
+        [[ -n "${ARGS[endpoint]:-}" ]] && qs+="&endpoint_id=${ARGS[endpoint]}"
+        gp_get "/v1/deliveries$qs" | jq .
+        ;;
+      get)
+        parse_args "$@"; id=$(require_arg id)
+        gp_get "/v1/deliveries/$id" | jq .
+        ;;
+      tail)
+        parse_args "$@"
+        ep="${ARGS[endpoint]:-}"
+        while true; do
+          qs="?limit=10${ep:+&endpoint_id=$ep}"
+          gp_get "/v1/deliveries$qs" | jq -r '.items[]? | "\(.started_at)\t\(.status)\t\(.http_status)\t\(.attempt_id)"'
+          sleep 2
+        done
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  replay)
+    parse_args "$@"
+    if [[ -n "${ARGS[event]:-}" ]]; then
+      body=$(jq -n --arg eid "${ARGS[event]}" '{event_id:$eid}')
+    else
+      body=$(jq -n \
+        --arg ep "${ARGS[endpoint]:-}" \
+        --arg topic "${ARGS[topic]:-}" \
+        --argjson from "${ARGS[from]:-0}" \
+        --argjson to "${ARGS[to]:-0}" \
+        --arg mode "${ARGS[mode]:-all}" \
+        '{endpoint_id:$ep,topic:$topic,from_ms:$from,to_ms:$to,mode:$mode}
+         | with_entries(select(.value != "" and .value != 0))')
+    fi
+    gp_post "/v1/replay" "$body" | jq .
+    ;;
+
+  dlq)
+    case "$sub" in
+      ls)
+        parse_args "$@"
+        qs="${ARGS[endpoint]:+?endpoint_id=${ARGS[endpoint]}}"
+        gp_get "/v1/dlq${qs:-}" | jq .
+        ;;
+      requeue)
+        parse_args "$@"; id=$(require_arg id)
+        gp_post "/v1/dlq/$id/requeue" "{}" | jq .
+        ;;
+      rm)
+        parse_args "$@"; id=$(require_arg id)
+        gp_del "/v1/dlq/$id"; echo "Deleted"
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  stream)
+    parse_args "$@"
+    topic="${ARGS[topic]:-#}"
+    exec curl -s -N \
+      -H "$(auth_header)" \
+      -H "Accept: text/event-stream" \
+      "${GP_URL}/v1/stream?topic=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$topic'))")"
+    ;;
+
+  inbox)
+    case "$sub" in
+      create)
+        gp_post "/v1/dev/inbox" "{}" | jq .
+        ;;
+      messages)
+        parse_args "$@"
+        token=$(require_arg token)
+        if [[ -n "${ARGS[id]:-}" ]]; then
+          gp_get "/v1/dev/inbox/messages/${ARGS[id]}?token=$token" | jq .
+        else
+          gp_get "/v1/dev/inbox/messages?token=$token" | jq .
+        fi
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  admin)
+    case "$sub" in
+      stats)
+        gp_get "/v1/admin/stats" | jq .
+        ;;
+      compact)
+        gp_post "/v1/admin/compact" "{}" | jq .
+        ;;
+      audit)
+        parse_args "$@"
+        qs="?limit=${ARGS[limit]:-100}"
+        gp_get "/v1/admin/audit$qs" | jq .
+        ;;
+      pause)
+        gp_post "/v1/admin/store/pause-claims" "{}" | jq .
+        ;;
+      resume)
+        gp_post "/v1/admin/store/resume-claims" "{}" | jq .
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  store)
+    case "$sub" in
+      snapshot)
+        action="${1:-}"; shift || true
+        parse_args "$@"
+        case "$action" in
+          create)
+            dest="${ARGS[dest]:-./gatepulse-snapshot-$(date +%Y%m%d-%H%M%S)}"
+            data_dir="${GP_DATA_DIR:-/var/lib/gatepulse}"
+            echo "→ Pausing job claims..."
+            gp_post "/v1/admin/store/pause-claims" "{}" >/dev/null
+            echo "→ Copying $data_dir → $dest"
+            mkdir -p "$dest"
+            rsync -av --progress "$data_dir/" "$dest/"
+            echo "→ Resuming job claims..."
+            gp_post "/v1/admin/store/resume-claims" "{}" >/dev/null
+            echo "✓ Snapshot saved to: $dest"
+            ;;
+          restore)
+            from=$(require_arg from)
+            data_dir="${GP_DATA_DIR:-/var/lib/gatepulse}"
+            echo "→ Restoring from $from → $data_dir"
+            echo "  WARNING: Stop GatePulse before restoring!"
+            read -rp "  Continue? [y/N] " yn
+            [[ "$yn" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+            rsync -av --progress "$from/" "$data_dir/"
+            echo "✓ Restore complete. Start GatePulse to apply."
+            ;;
+          *) echo "Usage: gp store snapshot create|restore" >&2; exit 1 ;;
+        esac
+        ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  init)
+    parse_args "$@"
+    url="${ARGS[url]:-$GP_URL}"
+    key="${ARGS[key]:-$GP_API_KEY}"
+    config_file="${GATEPULSE_CONFIG:-.gatepulse}"
+    echo "Testing connection to $url..."
+    if curl -sf "$url/healthz" >/dev/null; then
+      echo "✓ GatePulse is reachable"
+    else
+      echo "✗ Could not reach $url/healthz" >&2; exit 1
+    fi
+    cat > "$config_file" <<CFG
+GP_URL=$url
+GP_API_KEY=$key
+CFG
+    echo "✓ Config written to $config_file"
+    echo "  Source with: source $config_file  or  export \$(cat $config_file | xargs)"
+    ;;
+
+  doctor)
+    ok=true
+    check() { local label="$1" result="$2"
+      if [[ "$result" == "ok" ]]; then echo "  ✓ $label"
+      else echo "  ✗ $label: $result" >&2; ok=false; fi
+    }
+    echo "GatePulse doctor — $GP_URL"
+    echo ""
+    echo "Connectivity:"
+    if curl -sf "$GP_URL/healthz" >/dev/null 2>&1; then
+      check "healthz" "ok"
+    else
+      check "healthz" "unreachable"
+    fi
+    if curl -sf "$GP_URL/readyz" >/dev/null 2>&1; then
+      check "readyz" "ok"
+    else
+      check "readyz" "not ready"
+    fi
+    echo ""
+    echo "Auth:"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $GP_API_KEY" "$GP_URL/v1/events?limit=1")
+    if [[ "$http_code" == "200" ]]; then
+      check "api key" "ok"
+    else
+      check "api key" "failed (HTTP $http_code)"
+    fi
+    echo ""
+    echo "Admin stats:"
+    stats=$(curl -s -H "Authorization: Bearer $GP_API_KEY" "$GP_URL/v1/admin/stats" 2>/dev/null)
+    if [[ -n "$stats" ]]; then
+      echo "$stats" | jq -r '"  pending: \(.queue.pending // "?"), inflight: \(.queue.inflight // "?")"'
+    else
+      echo "  (admin stats unavailable)"
+    fi
+    echo ""
+    if $ok; then echo "✓ All checks passed"; else echo "✗ Some checks failed" >&2; exit 1; fi
+    ;;
+
+  tail)
+    parse_args "$@"
+    topic="${ARGS[topic]:-#}"
+    ep="${ARGS[endpoint]:-}"
+    echo "Tailing SSE stream (topic: $topic)… Ctrl-C to stop"
+    curl -s -N \
+      -H "$(auth_header)" \
+      -H "Accept: text/event-stream" \
+      "${GP_URL}/v1/stream?topic=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$topic'))")" \
+    | while IFS= read -r line; do
+        if [[ "$line" == data:* ]]; then
+          data="${line#data: }"
+          if [[ -n "$ep" ]]; then
+            match=$(echo "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('endpoint_id','') == '$ep' else 'no')" 2>/dev/null || echo "yes")
+            [[ "$match" == "yes" ]] || continue
+          fi
+          echo "$data" | python3 -m json.tool 2>/dev/null || echo "$data"
+          echo "---"
+        fi
+      done
+    ;;
+
+  help|"") usage ;;
+  *) echo "Unknown command: $cmd" >&2; usage; exit 1 ;;
+esac

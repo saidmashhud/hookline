@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GatePulse Console</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e0e0e0;display:flex;height:100vh;overflow:hidden}
+#sidebar{width:200px;background:#1a1d27;border-right:1px solid #2d3142;padding:20px 0;flex-shrink:0}
+#sidebar h2{color:#6c63ff;padding:0 20px 16px;font-size:16px;border-bottom:1px solid #2d3142;margin-bottom:8px}
+.nav-item{padding:10px 20px;cursor:pointer;font-size:13px;color:#a0a8c0;transition:all .15s}
+.nav-item:hover,.nav-item.active{background:#252a3a;color:#e0e0e0;border-left:3px solid #6c63ff}
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#topbar{background:#1a1d27;border-bottom:1px solid #2d3142;padding:12px 20px;display:flex;align-items:center;gap:12px}
+#topbar input{background:#0f1117;border:1px solid #2d3142;border-radius:6px;color:#e0e0e0;padding:6px 12px;font-size:13px;width:320px}
+#topbar button{background:#6c63ff;border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+#topbar button.sec{background:#252a3a;border:1px solid #3d4257}
+#content{flex:1;overflow-y:auto;padding:20px}
+.panel{display:none}.panel.active{display:block}
+h3{color:#6c63ff;margin-bottom:16px;font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;background:#1a1d27;color:#6c73a0;border-bottom:1px solid #2d3142}
+td{padding:8px 12px;border-bottom:1px solid #1a1d27;color:#c0c8e0}
+tr:hover td{background:#1a1d27}
+.badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge.ok{background:#1a3a2a;color:#4caf7d}
+.badge.fail{background:#3a1a1a;color:#f47070}
+.badge.pending{background:#2a2a1a;color:#c8b870}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:#1a1d27;border:1px solid #2d3142;border-radius:8px;padding:16px}
+.stat-card .label{font-size:11px;color:#6c73a0;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-card .value{font-size:28px;font-weight:700;color:#6c63ff}
+.form-row{display:flex;gap:12px;margin-bottom:16px;align-items:flex-end;flex-wrap:wrap}
+.form-row label{font-size:12px;color:#6c73a0;display:block;margin-bottom:4px}
+.form-row input,.form-row select{background:#1a1d27;border:1px solid #2d3142;border-radius:6px;color:#e0e0e0;padding:7px 10px;font-size:13px;width:220px}
+.btn-sm{background:#6c63ff;border:none;color:#fff;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+.btn-sec{background:#252a3a;border:1px solid #3d4257;color:#e0e0e0;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+.btn-danger{background:#7a2020;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px}
+#stream-feed{background:#0a0d14;border-radius:6px;padding:12px;font-size:12px;height:400px;overflow-y:auto;font-family:monospace}
+.stream-event{border-bottom:1px solid #1a1d27;padding:6px 0;color:#c0c8e0}
+.stream-topic{color:#6c63ff;font-weight:600}
+pre.inline{background:#0a0d14;border-radius:4px;padding:6px;font-size:11px;overflow-x:auto;white-space:pre-wrap;margin-top:4px}
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h2>GatePulse</h2>
+  <div class="nav-item active" data-panel="dashboard">Dashboard</div>
+  <div class="nav-item" data-panel="events">Events</div>
+  <div class="nav-item" data-panel="endpoints">Endpoints</div>
+  <div class="nav-item" data-panel="subscriptions">Subscriptions</div>
+  <div class="nav-item" data-panel="deliveries">Deliveries</div>
+  <div class="nav-item" data-panel="dlq">DLQ</div>
+  <div class="nav-item" data-panel="stream">Live Stream</div>
+</div>
+<div id="main">
+  <div id="topbar">
+    <input type="password" id="apiKey" placeholder="API Key (Bearer token)" oninput="saveKey()">
+    <button onclick="refreshCurrent()">Refresh</button>
+    <button class="sec" onclick="triggerCompact()">Compact</button>
+    <span id="status" style="font-size:12px;color:#6c73a0;margin-left:8px"></span>
+  </div>
+  <div id="content">
+
+    <div class="panel active" id="panel-dashboard">
+      <h3>Dashboard</h3>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="label">Pending Jobs</div><div class="value" id="stat-pending">-</div></div>
+        <div class="stat-card"><div class="label">In-Flight</div><div class="value" id="stat-inflight">-</div></div>
+        <div class="stat-card"><div class="label">Last Compaction</div><div class="value" id="stat-compact" style="font-size:14px">-</div></div>
+        <div class="stat-card"><div class="label">Segments Deleted</div><div class="value" id="stat-segs">-</div></div>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-events">
+      <h3>Events</h3>
+      <div class="form-row">
+        <div><label>Limit</label><input type="number" id="ev-limit" value="20" style="width:80px"></div>
+        <div><label>Topic filter</label><input type="text" id="ev-topic" placeholder="e.g. orders.*"></div>
+        <button class="btn-sm" onclick="loadEvents()">Load</button>
+      </div>
+      <table><thead><tr><th>ID</th><th>Topic</th><th>Tenant</th><th>Occurred At</th></tr></thead>
+      <tbody id="ev-table"></tbody></table>
+    </div>
+
+    <div class="panel" id="panel-endpoints">
+      <h3>Endpoints</h3>
+      <div class="form-row">
+        <div><label>URL</label><input type="text" id="ep-url" placeholder="https://example.com/hook" style="width:300px"></div>
+        <div><label>Name</label><input type="text" id="ep-name" placeholder="My endpoint"></div>
+        <button class="btn-sm" onclick="createEndpoint()">Create</button>
+      </div>
+      <table><thead><tr><th>ID</th><th>Name</th><th>URL</th><th></th></tr></thead>
+      <tbody id="ep-table"></tbody></table>
+    </div>
+
+    <div class="panel" id="panel-subscriptions">
+      <h3>Subscriptions</h3>
+      <div class="form-row">
+        <div><label>Endpoint ID</label><input type="text" id="sub-ep" placeholder="endpoint_id"></div>
+        <div><label>Topic Pattern</label><input type="text" id="sub-topic" value="#"></div>
+        <button class="btn-sm" onclick="createSubscription()">Create</button>
+      </div>
+      <table><thead><tr><th>ID</th><th>Endpoint</th><th>Pattern</th><th></th></tr></thead>
+      <tbody id="sub-table"></tbody></table>
+    </div>
+
+    <div class="panel" id="panel-deliveries">
+      <h3>Deliveries</h3>
+      <div class="form-row">
+        <div><label>Limit</label><input type="number" id="del-limit" value="50" style="width:80px"></div>
+        <button class="btn-sm" onclick="loadDeliveries()">Load</button>
+      </div>
+      <table><thead><tr><th>Job ID</th><th>Event ID</th><th>Endpoint</th><th>Status</th><th>Attempt</th><th>HTTP</th></tr></thead>
+      <tbody id="del-table"></tbody></table>
+    </div>
+
+    <div class="panel" id="panel-dlq">
+      <h3>Dead Letter Queue</h3>
+      <table><thead><tr><th>Job ID</th><th>Event ID</th><th>Endpoint</th><th>Reason</th><th></th></tr></thead>
+      <tbody id="dlq-table"></tbody></table>
+    </div>
+
+    <div class="panel" id="panel-stream">
+      <h3>Live SSE Stream</h3>
+      <div class="form-row">
+        <div><label>Topic filter</label><input type="text" id="stream-topic" value="#"></div>
+        <button class="btn-sm" onclick="startStream()">Connect</button>
+        <button class="btn-sec" onclick="stopStream()">Disconnect</button>
+        <span id="stream-status" style="font-size:12px;color:#6c73a0"></span>
+      </div>
+      <div id="stream-feed"><div style="color:#6c73a0;padding:8px">Press Connect to subscribe</div></div>
+    </div>
+
+  </div>
+</div>
+<script>
+let apiKey = localStorage.getItem('gp_api_key') || '';
+let currentPanel = 'dashboard';
+let es = null;
+
+document.getElementById('apiKey').value = apiKey;
+
+document.querySelectorAll('.nav-item').forEach(el => {
+  el.addEventListener('click', () => showPanel(el.dataset.panel, el));
+});
+
+function saveKey() { apiKey = document.getElementById('apiKey').value; localStorage.setItem('gp_api_key', apiKey); }
+function setStatus(msg, ok=true) {
+  const s = document.getElementById('status');
+  s.textContent = msg; s.style.color = ok ? '#4caf7d' : '#f47070';
+  if(ok) setTimeout(() => { if(s.textContent===msg) s.textContent=''; }, 3000);
+}
+
+function showPanel(name, el) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  if(el) el.classList.add('active');
+  else document.querySelector(`[data-panel="${name}"]`)?.classList.add('active');
+  currentPanel = name;
+  if(name==='dashboard') loadStats();
+  else if(name==='events') loadEvents();
+  else if(name==='endpoints') loadEndpoints();
+  else if(name==='subscriptions') loadSubscriptions();
+  else if(name==='deliveries') loadDeliveries();
+  else if(name==='dlq') loadDlq();
+}
+
+function hdr() { return {'Authorization':'Bearer '+apiKey,'Content-Type':'application/json'}; }
+
+async function api(method, path, body) {
+  try {
+    const r = await fetch(path, {method, headers:hdr(), body:body?JSON.stringify(body):undefined});
+    const ct = r.headers.get('content-type')||'';
+    const d = ct.includes('json') ? await r.json() : {};
+    if(!r.ok) setStatus((d.message||d.error||r.status), false);
+    return [r.ok, d, r.status];
+  } catch(e) { setStatus(e.message, false); return [false, {}, 0]; }
+}
+
+async function loadStats() {
+  const [ok, d] = await api('GET', '/v1/admin/stats');
+  if(!ok) return;
+  document.getElementById('stat-pending').textContent = d.queue?.pending ?? '-';
+  document.getElementById('stat-inflight').textContent = d.queue?.inflight ?? '-';
+  document.getElementById('stat-segs').textContent = d.compaction?.segments_deleted ?? '-';
+  const ts = d.compaction?.last_run_at;
+  document.getElementById('stat-compact').textContent = ts && ts > 0 ? new Date(ts).toLocaleString() : 'Never';
+}
+
+async function triggerCompact() {
+  const [ok] = await api('POST', '/v1/admin/compact');
+  if(ok) setStatus('Compaction triggered');
+}
+
+async function loadEvents() {
+  const limit = document.getElementById('ev-limit').value || 20;
+  const [ok, d] = await api('GET', '/v1/events?limit='+limit);
+  if(!ok) return;
+  document.getElementById('ev-table').innerHTML = (d.items||[]).map(e =>
+    `<tr><td style="font-family:monospace;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${e.id||''}</td><td>${e.topic||''}</td><td>${e.tenant_id||''}</td><td>${e.occurred_at?new Date(e.occurred_at).toLocaleString():''}</td></tr>`
+  ).join('') || '<tr><td colspan="4" style="color:#6c73a0;text-align:center;padding:20px">No events</td></tr>';
+}
+
+async function loadEndpoints() {
+  const [ok, d] = await api('GET', '/v1/endpoints');
+  if(!ok) return;
+  document.getElementById('ep-table').innerHTML = (d.items||[]).map(e =>
+    `<tr><td style="font-size:11px;font-family:monospace">${e.endpoint_id||e.id||''}</td><td>${e.name||''}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${e.url||''}</td><td><button class="btn-danger" onclick="deleteEndpoint('${e.endpoint_id||e.id}')">Delete</button></td></tr>`
+  ).join('') || '<tr><td colspan="4" style="color:#6c73a0;text-align:center;padding:20px">No endpoints</td></tr>';
+}
+
+async function createEndpoint() {
+  const url = document.getElementById('ep-url').value;
+  const name = document.getElementById('ep-name').value;
+  if(!url) return;
+  const [ok] = await api('POST', '/v1/endpoints', {url, name});
+  if(ok) { setStatus('Endpoint created'); loadEndpoints(); }
+}
+
+async function deleteEndpoint(id) {
+  if(!confirm('Delete endpoint '+id+'?')) return;
+  const [ok] = await api('DELETE', '/v1/endpoints/'+id);
+  if(ok) { setStatus('Deleted'); loadEndpoints(); }
+}
+
+async function loadSubscriptions() {
+  const [ok, d] = await api('GET', '/v1/subscriptions');
+  if(!ok) return;
+  document.getElementById('sub-table').innerHTML = (d.items||[]).map(s =>
+    `<tr><td style="font-size:11px;font-family:monospace">${s.subscription_id||s.id||''}</td><td style="font-size:11px;font-family:monospace">${s.endpoint_id||''}</td><td>${s.topic_pattern||''}</td><td><button class="btn-danger" onclick="deleteSubscription('${s.subscription_id||s.id}')">Delete</button></td></tr>`
+  ).join('') || '<tr><td colspan="4" style="color:#6c73a0;text-align:center;padding:20px">No subscriptions</td></tr>';
+}
+
+async function createSubscription() {
+  const endpoint_id = document.getElementById('sub-ep').value;
+  const topic_pattern = document.getElementById('sub-topic').value || '#';
+  if(!endpoint_id) return;
+  const [ok] = await api('POST', '/v1/subscriptions', {endpoint_id, topic_pattern});
+  if(ok) { setStatus('Subscription created'); loadSubscriptions(); }
+}
+
+async function deleteSubscription(id) {
+  const [ok] = await api('DELETE', '/v1/subscriptions/'+id);
+  if(ok) { setStatus('Deleted'); loadSubscriptions(); }
+}
+
+async function loadDeliveries() {
+  const limit = document.getElementById('del-limit').value || 50;
+  const [ok, d] = await api('GET', '/v1/deliveries?limit='+limit);
+  if(!ok) return;
+  document.getElementById('del-table').innerHTML = (d.items||[]).map(a =>
+    `<tr><td style="font-size:11px;font-family:monospace">${a.job_id||''}</td><td style="font-size:11px;font-family:monospace">${a.event_id||''}</td><td style="font-size:11px">${a.endpoint_id||''}</td><td><span class="badge ${a.status==='success'?'ok':a.status==='pending'?'pending':'fail'}">${a.status||''}</span></td><td>${a.attempt||''}</td><td>${a.http_status||''}</td></tr>`
+  ).join('') || '<tr><td colspan="6" style="color:#6c73a0;text-align:center;padding:20px">No deliveries</td></tr>';
+}
+
+async function loadDlq() {
+  const [ok, d] = await api('GET', '/v1/dlq');
+  if(!ok) return;
+  document.getElementById('dlq-table').innerHTML = (d.items||[]).map(j =>
+    `<tr><td style="font-size:11px;font-family:monospace">${j.job_id||j.id||''}</td><td style="font-size:11px;font-family:monospace">${j.event_id||''}</td><td style="font-size:11px">${j.endpoint_id||''}</td><td>${j.reason||''}</td><td><button class="btn-sm" style="font-size:11px;padding:4px 8px" onclick="requeueDlq('${j.job_id||j.id}')">Requeue</button></td></tr>`
+  ).join('') || '<tr><td colspan="5" style="color:#6c73a0;text-align:center;padding:20px">DLQ is empty</td></tr>';
+}
+
+async function requeueDlq(id) {
+  const [ok] = await api('POST', '/v1/dlq/'+id+'/requeue');
+  if(ok) { setStatus('Requeued'); loadDlq(); }
+}
+
+function startStream() {
+  stopStream();
+  const topic = document.getElementById('stream-topic').value || '#';
+  const feed = document.getElementById('stream-feed');
+  feed.innerHTML = '<div style="color:#6c73a0;padding:8px">Connecting...</div>';
+  const url = '/v1/stream?topic='+encodeURIComponent(topic);
+  es = new EventSource(url);
+  es.onopen = () => {
+    document.getElementById('stream-status').textContent = 'Connected';
+    document.getElementById('stream-status').style.color = '#4caf7d';
+    feed.innerHTML = '';
+  };
+  es.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      const el = document.createElement('div');
+      el.className = 'stream-event';
+      el.innerHTML = `<div><span class="stream-topic">${d.topic||'(no topic)'}</span> <span style="color:#6c73a0;font-size:11px">${new Date().toLocaleTimeString()}</span></div><pre class="inline">${JSON.stringify(d,null,2)}</pre>`;
+      feed.insertBefore(el, feed.firstChild);
+      while(feed.children.length > 100) feed.removeChild(feed.lastChild);
+    } catch(_) {}
+  };
+  es.onerror = () => {
+    document.getElementById('stream-status').textContent = 'Disconnected';
+    document.getElementById('stream-status').style.color = '#f47070';
+  };
+}
+
+function stopStream() {
+  if(es) { es.close(); es = null; }
+  document.getElementById('stream-status').textContent = '';
+}
+
+function refreshCurrent() { showPanel(currentPanel); }
+
+loadStats();
+</script>
+</body>
+</html>

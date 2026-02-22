@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gatepulse.fullname" . }}-config
+  labels:
+    {{- include "gatepulse.labels" . | nindent 4 -}}
+data:
+  GP_PORT: {{ .Values.api.port | quote }}
+  GP_LISTEN_ADDR: {{ .Values.api.listenAddr | quote }}
+  GP_TENANT_ID: {{ .Values.auth.tenantId | quote }}
+  GP_SINGLE_TENANT: {{ .Values.auth.singleTenant | quote }}
+  GP_DELIVERY_WORKERS: {{ .Values.delivery.workers | quote }}
+  GP_MAX_QUEUE_DEPTH: {{ .Values.delivery.maxQueueDepth | quote }}
+  GP_MAX_PAYLOAD_BYTES: {{ .Values.delivery.maxPayloadBytes | quote }}
+  GP_RETENTION_SECS: {{ .Values.retention.secs | quote }}
+  GP_COMPACT_INTERVAL_MS: {{ .Values.retention.compactIntervalMs | quote }}
+  GP_STORE_SOCKET: {{ .Values.store.socketPath | quote }}
+  GP_STORE_POOL_SIZE: {{ .Values.store.poolSize | quote }}
+  GP_DATA_DIR: {{ .Values.store.dataDir | quote }}

@@ -1,0 +1,938 @@
+{
+  "info": {
+    "name": "GatePulse",
+    "description": "GatePulse webhook delivery service — полный набор сценариев для ручного тестирования.\n\n**Начало работы:**\n1. Установи переменные окружения в Environment (base_url, api_key)\n2. Запусти `01 Health / Healthz` — должен вернуть 200\n3. Прогони сценарий \"🚀 Полный сценарий\" сверху вниз",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url",    "value": "http://localhost:8080", "type": "string" },
+    { "key": "api_key",     "value": "change-me-in-production", "type": "string" },
+    { "key": "endpoint_id", "value": "", "type": "string" },
+    { "key": "sub_id",      "value": "", "type": "string" },
+    { "key": "event_id",    "value": "", "type": "string" },
+    { "key": "job_id",      "value": "", "type": "string" },
+    { "key": "dlq_id",      "value": "", "type": "string" },
+    { "key": "inbox_token", "value": "", "type": "string" },
+    { "key": "inbox_url",   "value": "", "type": "string" },
+    { "key": "apikey_id",   "value": "", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }]
+  },
+  "item": [
+
+    {
+      "name": "01 Health",
+      "item": [
+        {
+          "name": "Healthz",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/healthz", "host": ["{{base_url}}"], "path": ["healthz"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Readyz",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/readyz", "host": ["{{base_url}}"], "path": ["readyz"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Metrics (Prometheus)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/metrics", "host": ["{{base_url}}"], "path": ["metrics"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has gatepulse metrics', () => {",
+              "  pm.expect(pm.response.text()).to.include('gatepulse_');",
+              "});"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "02 Endpoints",
+      "item": [
+        {
+          "name": "Create endpoint (webhook.site)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/endpoints", "host": ["{{base_url}}"], "path": ["v1","endpoints"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://webhook.site/00000000-0000-0000-0000-000000000000\",\n  \"secret\": \"my-hmac-secret\",\n  \"timeout_ms\": 5000,\n  \"rate_limit_rps\": 50,\n  \"max_in_flight\": 10,\n  \"enabled\": true\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('endpoint_id', body.endpoint_id || body.id);",
+              "console.log('endpoint_id =', body.endpoint_id || body.id);"
+            ]}
+          }]
+        },
+        {
+          "name": "List endpoints",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/endpoints", "host": ["{{base_url}}"], "path": ["v1","endpoints"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has items', () => {",
+              "  const b = pm.response.json();",
+              "  pm.expect(b.items).to.be.an('array');",
+              "});"
+            ]}
+          }]
+        },
+        {
+          "name": "Get endpoint",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/endpoints/{{endpoint_id}}", "host": ["{{base_url}}"], "path": ["v1","endpoints","{{endpoint_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Update endpoint (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/endpoints/{{endpoint_id}}", "host": ["{{base_url}}"], "path": ["v1","endpoints","{{endpoint_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rate_limit_rps\": 100,\n  \"max_in_flight\": 20\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Delete endpoint",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/v1/endpoints/{{endpoint_id}}", "host": ["{{base_url}}"], "path": ["v1","endpoints","{{endpoint_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 204', () => pm.response.to.have.status(204));"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "03 Subscriptions",
+      "item": [
+        {
+          "name": "Create subscription (wildcard topic)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/subscriptions", "host": ["{{base_url}}"], "path": ["v1","subscriptions"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint_id\": \"{{endpoint_id}}\",\n  \"topic_pattern\": \"orders.*\"\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.collectionVariables.set('sub_id', b.id);",
+              "console.log('sub_id =', b.id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Create subscription (with filter + transform)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/subscriptions", "host": ["{{base_url}}"], "path": ["v1","subscriptions"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint_id\": \"{{endpoint_id}}\",\n  \"topic_pattern\": \"orders.*\",\n  \"filter\": {\n    \"and\": [\n      {\"gt\": \"data.amount\", \"value\": 100},\n      {\"eq\": \"data.currency\", \"value\": \"USD\"}\n    ]\n  },\n  \"transform\": [\n    {\"op\": \"remove_field\", \"path\": \"data.internal_id\"},\n    {\"op\": \"set_field\", \"path\": \"data.source\", \"value\": \"gatepulse\"}\n  ]\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));"
+            ]}
+          }]
+        },
+        {
+          "name": "List subscriptions",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/subscriptions?endpoint_id={{endpoint_id}}",
+              "host": ["{{base_url}}"], "path": ["v1","subscriptions"],
+              "query": [{ "key": "endpoint_id", "value": "{{endpoint_id}}" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Delete subscription",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/v1/subscriptions/{{sub_id}}", "host": ["{{base_url}}"], "path": ["v1","subscriptions","{{sub_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 204', () => pm.response.to.have.status(204));"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "04 Events",
+      "item": [
+        {
+          "name": "Publish event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/events", "host": ["{{base_url}}"], "path": ["v1","events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"orders.created\",\n  \"payload\": {\n    \"order_id\": \"ord-001\",\n    \"amount\": 150,\n    \"currency\": \"USD\",\n    \"customer\": \"user@example.com\"\n  }\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.collectionVariables.set('event_id', b.id || b.event_id);",
+              "console.log('event_id =', b.id || b.event_id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Publish event (idempotency key)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/events", "host": ["{{base_url}}"], "path": ["v1","events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"orders.created\",\n  \"idempotency_key\": \"order-ord-001-v1\",\n  \"payload\": {\n    \"order_id\": \"ord-001\",\n    \"amount\": 150\n  }\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201 or 200 (dedup)', () => {",
+              "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+              "});"
+            ]}
+          }]
+        },
+        {
+          "name": "Publish event (fails filter — amount < 100)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/events", "host": ["{{base_url}}"], "path": ["v1","events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"orders.created\",\n  \"payload\": {\n    \"amount\": 50,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201 — event accepted but not delivered', () => pm.response.to.have.status(201));"
+            ]}
+          }]
+        },
+        {
+          "name": "Publish event (payload too large — expect 413)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/events", "host": ["{{base_url}}"], "path": ["v1","events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"test.oversize\",\n  \"payload\": {\"data\": \"{{$randomLoremParagraph}}\"}\n}"
+            }
+          },
+          "event": [{
+            "listen": "prerequest",
+            "script": { "exec": [
+              "// Генерация ~600KB строки",
+              "const big = 'x'.repeat(600000);",
+              "pm.request.body.raw = JSON.stringify({ topic: 'test.oversize', payload: { data: big } });"
+            ]}
+          }],
+          "event2": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 413 Payload Too Large', () => pm.response.to.have.status(413));"
+            ]}
+          }]
+        },
+        {
+          "name": "List events",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/events?limit=20",
+              "host": ["{{base_url}}"], "path": ["v1","events"],
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has items array', () => {",
+              "  pm.expect(pm.response.json().items).to.be.an('array');",
+              "});"
+            ]}
+          }]
+        },
+        {
+          "name": "Get event by ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/events/{{event_id}}", "host": ["{{base_url}}"], "path": ["v1","events","{{event_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "05 Deliveries",
+      "item": [
+        {
+          "name": "List deliveries",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/deliveries?limit=20",
+              "host": ["{{base_url}}"], "path": ["v1","deliveries"],
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "if (b.items && b.items.length > 0) {",
+              "  pm.collectionVariables.set('job_id', b.items[0].job_id || '');",
+              "}"
+            ]}
+          }]
+        },
+        {
+          "name": "List deliveries by event",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/deliveries?event_id={{event_id}}&limit=20",
+              "host": ["{{base_url}}"], "path": ["v1","deliveries"],
+              "query": [
+                { "key": "event_id", "value": "{{event_id}}" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List deliveries by endpoint",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/deliveries?endpoint_id={{endpoint_id}}&limit=20",
+              "host": ["{{base_url}}"], "path": ["v1","deliveries"],
+              "query": [
+                { "key": "endpoint_id", "value": "{{endpoint_id}}" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get delivery by ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/deliveries/{{job_id}}", "host": ["{{base_url}}"], "path": ["v1","deliveries","{{job_id}}"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "06 Dev Inbox",
+      "item": [
+        {
+          "name": "Create inbox",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/dev/inbox", "host": ["{{base_url}}"], "path": ["v1","dev","inbox"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.collectionVariables.set('inbox_token', b.token);",
+              "pm.collectionVariables.set('inbox_url',   b.receive_url);",
+              "console.log('inbox token =', b.token);",
+              "console.log('receive_url =', b.receive_url);",
+              "console.log('UI =', pm.collectionVariables.get('base_url') + '/v1/dev/inbox/ui?token=' + b.token);"
+            ]}
+          }]
+        },
+        {
+          "name": "List inbox messages",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/dev/inbox/messages?token={{inbox_token}}",
+              "host": ["{{base_url}}"], "path": ["v1","dev","inbox","messages"],
+              "query": [{ "key": "token", "value": "{{inbox_token}}" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Create endpoint → inbox",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/endpoints", "host": ["{{base_url}}"], "path": ["v1","endpoints"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"{{inbox_url}}\",\n  \"secret\": \"test-secret\",\n  \"timeout_ms\": 5000,\n  \"enabled\": true\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('endpoint_id', pm.response.json().id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Subscribe → inbox endpoint",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/subscriptions", "host": ["{{base_url}}"], "path": ["v1","subscriptions"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint_id\": \"{{endpoint_id}}\",\n  \"topic_pattern\": \"test.#\"\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('sub_id', pm.response.json().id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Publish → should appear in inbox",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/events", "host": ["{{base_url}}"], "path": ["v1","events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"test.hello\",\n  \"payload\": {\n    \"message\": \"Hello from Postman!\",\n    \"ts\": {{$timestamp}}\n  }\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('event_id', pm.response.json().id || pm.response.json().event_id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Verify message arrived in inbox",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/dev/inbox/messages?token={{inbox_token}}",
+              "host": ["{{base_url}}"], "path": ["v1","dev","inbox","messages"],
+              "query": [{ "key": "token", "value": "{{inbox_token}}" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('At least one message received', () => {",
+              "  const b = pm.response.json();",
+              "  pm.expect(b.items || b).to.have.length.greaterThan(0);",
+              "});"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "07 Replay",
+      "item": [
+        {
+          "name": "Replay single event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/replay", "host": ["{{base_url}}"], "path": ["v1","replay"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"{{event_id}}\"\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200 or 201', () => {",
+              "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+              "});"
+            ]}
+          }]
+        },
+        {
+          "name": "Replay failed events (last hour)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/replay", "host": ["{{base_url}}"], "path": ["v1","replay"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint_id\": \"{{endpoint_id}}\",\n  \"topic\": \"orders.*\",\n  \"from_ms\": {{$timestamp}}000,\n  \"mode\": \"failed_only\"\n}"
+            }
+          },
+          "event": [{
+            "listen": "prerequest",
+            "script": { "exec": [
+              "// from_ms = 1 hour ago",
+              "pm.variables.set('from_ms', Date.now() - 3600000);"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "08 DLQ",
+      "item": [
+        {
+          "name": "List DLQ",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/dlq", "host": ["{{base_url}}"], "path": ["v1","dlq"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "if (b.items && b.items.length > 0) {",
+              "  pm.collectionVariables.set('dlq_id', b.items[0].id || b.items[0].job_id);",
+              "  console.log('dlq_id =', pm.collectionVariables.get('dlq_id'));",
+              "}"
+            ]}
+          }]
+        },
+        {
+          "name": "Requeue from DLQ",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/dlq/{{dlq_id}}/requeue", "host": ["{{base_url}}"], "path": ["v1","dlq","{{dlq_id}}","requeue"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Delete from DLQ",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/v1/dlq/{{dlq_id}}", "host": ["{{base_url}}"], "path": ["v1","dlq","{{dlq_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 204', () => pm.response.to.have.status(204));"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "09 Admin",
+      "item": [
+        {
+          "name": "Stats",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/admin/stats", "host": ["{{base_url}}"], "path": ["v1","admin","stats"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('Has queue field', () => pm.expect(b).to.have.property('queue'));",
+              "console.log('pending:', b.queue && b.queue.pending, 'inflight:', b.queue && b.queue.inflight);"
+            ]}
+          }]
+        },
+        {
+          "name": "Compact segments",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/admin/compact", "host": ["{{base_url}}"], "path": ["v1","admin","compact"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Pause job claiming",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/admin/store/pause-claims", "host": ["{{base_url}}"], "path": ["v1","admin","store","pause-claims"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Resume job claiming",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/admin/store/resume-claims", "host": ["{{base_url}}"], "path": ["v1","admin","store","resume-claims"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Audit log",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/admin/audit?limit=50",
+              "host": ["{{base_url}}"], "path": ["v1","admin","audit"],
+              "query": [{ "key": "limit", "value": "50" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]}
+          }]
+        },
+        {
+          "name": "Rotate secrets (v2.0)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/admin/rotate-secrets", "host": ["{{base_url}}"], "path": ["v1","admin","rotate-secrets"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "10 API Keys",
+      "item": [
+        {
+          "name": "Create API key (read-only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/apikeys", "host": ["{{base_url}}"], "path": ["v1","apikeys"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman test key\",\n  \"scopes\": [\"events:read\", \"endpoints:manage\", \"subscriptions:manage\"]\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.collectionVariables.set('apikey_id', b.id);",
+              "console.log('new api key =', b.key);"
+            ]}
+          }]
+        },
+        {
+          "name": "List API keys",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/apikeys", "host": ["{{base_url}}"], "path": ["v1","apikeys"] }
+          }
+        },
+        {
+          "name": "Delete API key",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/v1/apikeys/{{apikey_id}}", "host": ["{{base_url}}"], "path": ["v1","apikeys","{{apikey_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 204', () => pm.response.to.have.status(204));"
+            ]}
+          }]
+        },
+        {
+          "name": "Access denied — wrong scope (expect 403)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "gp_invalid_key_12345", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/replay", "host": ["{{base_url}}"], "path": ["v1","replay"] },
+            "body": { "mode": "raw", "raw": "{\"event_id\": \"fake\"}" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 401 or 403', () => {",
+              "  pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+              "});"
+            ]}
+          }]
+        }
+      ]
+    },
+
+    {
+      "name": "🚀 Полный сценарий (inbox end-to-end)",
+      "item": [
+        {
+          "name": "Step 1 — Create inbox",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/dev/inbox", "host": ["{{base_url}}"], "path": ["v1","dev","inbox"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Inbox created', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.collectionVariables.set('inbox_token', b.token);",
+              "pm.collectionVariables.set('inbox_url',   b.receive_url);"
+            ]}
+          }]
+        },
+        {
+          "name": "Step 2 — Create endpoint → inbox",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/endpoints", "host": ["{{base_url}}"], "path": ["v1","endpoints"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"{{inbox_url}}\",\n  \"secret\": \"e2e-secret\",\n  \"timeout_ms\": 5000,\n  \"enabled\": true\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Endpoint created', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('endpoint_id', pm.response.json().id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Step 3 — Subscribe",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/subscriptions", "host": ["{{base_url}}"], "path": ["v1","subscriptions"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint_id\": \"{{endpoint_id}}\",\n  \"topic_pattern\": \"#\"\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Subscription created', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('sub_id', pm.response.json().id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Step 4 — Publish event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/v1/events", "host": ["{{base_url}}"], "path": ["v1","events"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"orders.created\",\n  \"payload\": {\n    \"order_id\": \"{{$guid}}\",\n    \"amount\": 199,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Event published', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.collectionVariables.set('event_id', b.id || b.event_id);"
+            ]}
+          }]
+        },
+        {
+          "name": "Step 5 — Check inbox (wait ~2s)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/dev/inbox/messages?token={{inbox_token}}",
+              "host": ["{{base_url}}"], "path": ["v1","dev","inbox","messages"],
+              "query": [{ "key": "token", "value": "{{inbox_token}}" }]
+            }
+          },
+          "event": [{
+            "listen": "prerequest",
+            "script": { "exec": [
+              "// Небольшая пауза перед проверкой",
+              "setTimeout(() => {}, 2000);"
+            ]}
+          }, {
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Message delivered to inbox', () => {",
+              "  const b = pm.response.json();",
+              "  const items = b.items || b;",
+              "  pm.expect(items.length, 'Expected at least 1 message in inbox').to.be.greaterThan(0);",
+              "});",
+              "console.log('✅ End-to-end доставка прошла успешно!');"
+            ]}
+          }]
+        },
+        {
+          "name": "Step 6 — Check delivery status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/deliveries?event_id={{event_id}}",
+              "host": ["{{base_url}}"], "path": ["v1","deliveries"],
+              "query": [{ "key": "event_id", "value": "{{event_id}}" }]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "const items = b.items || [];",
+              "if (items.length > 0) {",
+              "  const d = items[0];",
+              "  console.log('status:', d.status, '| http:', d.http_status, '| attempt:', d.attempt_n);",
+              "  pm.test('Delivery succeeded', () => pm.expect(d.status).to.equal('success'));",
+              "}"
+            ]}
+          }]
+        },
+        {
+          "name": "Step 7 — Admin stats",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/v1/admin/stats", "host": ["{{base_url}}"], "path": ["v1","admin","stats"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "console.log('Queue stats:', JSON.stringify(b.queue));"
+            ]}
+          }]
+        }
+      ]
+    }
+
+  ]
+}

@@ -1,0 +1,15 @@
+{application, gp_core, [
+    {description, "GatePulse Core Logic"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {gp_core_app, []}},
+    {applications, [
+        kernel, stdlib,
+        jsx,
+        uuid,
+        crypto,
+        gp_store_client
+    ]},
+    {env, []},
+    {modules, []}
+]}.

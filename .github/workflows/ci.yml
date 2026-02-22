@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  c-build-test:
+    name: C Daemon (build + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build C daemon
+        run: |
+          cd c
+          make daemon
+
+      - name: Run C unit tests
+        run: |
+          cd c
+          make test
+
+  erlang-build:
+    name: Erlang (compile + lint + eunit)
+    runs-on: ubuntu-latest
+    container:
+      image: erlang:27
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache rebar3 deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/rebar3
+            _build
+          key: ${{ runner.os }}-rebar3-${{ hashFiles('rebar.config') }}
+          restore-keys: |
+            ${{ runner.os }}-rebar3-
+
+      - name: Install rebar3
+        run: |
+          curl -fsSL https://s3.amazonaws.com/rebar3/rebar3 -o /usr/local/bin/rebar3
+          chmod +x /usr/local/bin/rebar3
+
+      - name: Compile
+        run: rebar3 compile
+
+      - name: EUnit tests
+        run: rebar3 eunit
+
+      - name: Dialyzer
+        run: rebar3 dialyzer || true  # non-blocking for now
+
+  docker-build:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    needs: [c-build-test, erlang-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: gatepulse:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          docker run -d --name gp-smoke \
+            -e GP_API_KEY=ci-test-key \
+            -p 18080:8080 \
+            gatepulse:ci
+          sleep 15
+          curl -sf http://localhost:18080/healthz
+          docker stop gp-smoke

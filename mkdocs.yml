@@ -1,0 +1,71 @@
+site_name: GatePulse
+site_description: OSS Webhook Delivery Service
+site_url: https://gatepulse.dev
+repo_url: https://github.com/your-org/gatepulse
+repo_name: gatepulse
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: getting-started/quickstart.md
+    - Configuration: getting-started/configuration.md
+    - Docker: getting-started/docker.md
+  - Concepts:
+    - Architecture: concepts/architecture.md
+    - Events: concepts/events.md
+    - Delivery: concepts/delivery.md
+    - Retry & DLQ: concepts/retry.md
+    - SSE Stream: concepts/stream.md
+  - API Reference:
+    - Overview: api/overview.md
+    - Events: api/events.md
+    - Endpoints: api/endpoints.md
+    - Subscriptions: api/subscriptions.md
+    - Deliveries: api/deliveries.md
+    - DLQ: api/dlq.md
+    - Replay: api/replay.md
+  - Developer Inbox: dev-inbox.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true

@@ -1,0 +1,14 @@
+GatePulse has been deployed!
+
+To get the API URL, run:
+  kubectl port-forward svc/gatepulse 8080:8080 -n default
+  Then open: http://localhost:8080
+
+Verify health:
+  curl http://localhost:8080/healthz
+
+Publish an event:
+  curl -X POST http://localhost:8080/v1/events \
+    -H "Authorization: Bearer dev-secret" \
+    -H "Content-Type: application/json" \
+    -d "{\"topic\":\"orders.created\",\"payload\":{\"order_id\":\"1\"}}"

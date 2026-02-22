@@ -1,0 +1,15 @@
+## Single-node, no distribution needed
+-sname gatepulse
+-setcookie gatepulse_secret
+
+## Async thread pool
++A 64
+
+## Max ETS tables
++e 65536
+
+## Max processes
++P 1048576
+
+## Max ports
++Q 65536

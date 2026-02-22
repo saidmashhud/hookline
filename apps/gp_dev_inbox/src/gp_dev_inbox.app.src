@@ -1,0 +1,12 @@
+{application, gp_dev_inbox, [
+    {description, "GatePulse Developer Inbox (test webhook receiver)"},
+    {vsn, "0.1.0"},
+    {registered, [gp_dev_inbox]},
+    {mod, {gp_dev_inbox_app, []}},
+    {applications, [
+        kernel, stdlib,
+        jsx
+    ]},
+    {env, []},
+    {modules, []}
+]}.

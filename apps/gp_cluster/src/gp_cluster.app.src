@@ -1,0 +1,8 @@
+{application, gp_cluster,
+ [{description, "GatePulse Cluster Coordination"},
+  {vsn, "0.1.0"},
+  {registered, [gp_cluster_sup, gp_leader]},
+  {mod, {gp_cluster_app, []}},
+  {applications, [kernel, stdlib]},
+  {env, []}
+ ]}.

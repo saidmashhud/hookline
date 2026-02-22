@@ -1,0 +1,14 @@
+apiVersion: v2
+name: gatepulse
+description: GatePulse - Open Source Webhook Delivery Service
+type: application
+version: 1.3.0
+appVersion: "1.3.0"
+keywords:
+  - webhooks
+  - event-delivery
+home: https://gatepulse.dev
+sources:
+  - https://github.com/your-org/gatepulse
+maintainers:
+  - name: GatePulse Team
