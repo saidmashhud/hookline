@@ -27,7 +27,8 @@ final case class BridgeConfig(
   hookline: HooklineConfig,
   parallelism: Int,
   retryMax: Int,
-  retryBaseMs: Int
+  retryBaseMs: Int,
+  bridgeMode: String  // "generic" | "mashgate"
 )
 
 object BridgeConfig:
@@ -53,10 +54,12 @@ object BridgeConfig:
       parallelism      <- envInt("BRIDGE_PARALLELISM",   4)
       retryMax         <- envInt("BRIDGE_RETRY_MAX",     5)
       retryBaseMs      <- envInt("BRIDGE_RETRY_BASE_MS", 200)
+      bridgeMode       <- env("BRIDGE_MODE",             "generic")
     yield BridgeConfig(
       kafka    = KafkaConfig(bootstrapServers, groupId, topics, topicPrefix, autoOffsetReset),
       hookline = HooklineConfig(hooklineUrl, hooklineApiKey),
       parallelism = parallelism,
       retryMax    = retryMax,
-      retryBaseMs = retryBaseMs
+      retryBaseMs = retryBaseMs,
+      bridgeMode  = bridgeMode
     )

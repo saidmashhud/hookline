@@ -56,13 +56,19 @@ object BridgeApp:
           Serde.byteArray
         )
         .mapZIO { record =>
-          val event = EventMapper.map(record, cfg.kafka)
-          client
-            .publish(event)
-            .retry(retrySchedule)
-            .tapError(e => ZIO.logError(
-              s"Failed to publish event ${event.eventId} after ${cfg.retryMax} retries: ${e.getMessage}"
-            ))
+          val mapped: Either[String, HooklinePayload] = cfg.bridgeMode match
+            case "mashgate" => MashgateEventMapper.map(record.record)
+            case _          => Right(EventMapper.map(record, cfg.kafka))
+          ZIO.fromEither(mapped)
+            .mapError(e => new RuntimeException(e))
+            .flatMap { event =>
+              client
+                .publish(event)
+                .retry(retrySchedule)
+                .tapError(e => ZIO.logError(
+                  s"Failed to publish event ${event.eventId} after ${cfg.retryMax} retries: ${e.getMessage}"
+                ))
+            }
             .as(record.offset)
         }
         .aggregateAsync(Consumer.offsetBatches)

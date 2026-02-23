@@ -41,3 +41,8 @@ services:
       BRIDGE_PARALLELISM: "4"
       BRIDGE_RETRY_MAX: "5"
       BRIDGE_RETRY_BASE_MS: "200"
+      # Mashgate preset: set to "mashgate" to use Mashgate DomainEvent mapping.
+      # In mashgate mode: event_id is read from the payload (falls back to random UUID),
+      # and event_type (PascalCase) is converted to dot.notation topic
+      # e.g. {"event_id":"abc","event_type":"PaymentCaptured"} → topic="payment.captured", id="abc"
+      BRIDGE_MODE: "generic"

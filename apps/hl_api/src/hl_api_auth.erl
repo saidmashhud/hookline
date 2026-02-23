@@ -46,6 +46,25 @@ extract_token(Req) ->
     end.
 
 verify_token(Token) ->
+    AuthMode      = hl_config:get_str("HL_AUTH_MODE", "api_key"),
+    case AuthMode of
+        "service_token" ->
+            %% Single shared secret for machine-to-machine calls (e.g. mashgate-webhook-delivery).
+            %% HL_SERVICE_TOKEN must be set; if blank, fall through to api_key mode.
+            ServiceToken  = list_to_binary(hl_config:get_str("HL_SERVICE_TOKEN", "")),
+            DefaultTenant = list_to_binary(hl_config:get_str("HL_TENANT_ID", "default")),
+            if
+                ServiceToken =/= <<>> andalso Token =:= ServiceToken ->
+                    {ok, DefaultTenant};
+                true ->
+                    {error, unauthorized}
+            end;
+        _ ->
+            %% Default api_key mode: HL_ADMIN_KEY > HL_API_KEY > dynamic key store
+            verify_token_api_key(Token)
+    end.
+
+verify_token_api_key(Token) ->
     AdminKey      = list_to_binary(hl_config:get_str("HL_ADMIN_KEY", "")),
     EnvKey        = list_to_binary(hl_config:get_str("HL_API_KEY", "dev-secret")),
     DefaultTenant = list_to_binary(hl_config:get_str("HL_TENANT_ID", "default")),
@@ -77,21 +96,32 @@ require_scope(Req, Scope) ->
     end.
 
 %% Get scopes for a token.
-%%   HL_ADMIN_KEY  → [<<"admin">>, <<"*">>]  (all scopes + admin-only ops)
-%%   HL_API_KEY    → [<<"*">>]               (all scopes, backward compat)
+%%   HL_AUTH_MODE=service_token + HL_SERVICE_TOKEN  → [<<"*">>]  (trusted machine caller)
+%%   HL_ADMIN_KEY  → [<<"admin">>, <<"*">>]          (all scopes + admin-only ops)
+%%   HL_API_KEY    → [<<"*">>]                       (all scopes, backward compat)
 %%   dynamic key   → whatever was set at creation
 get_scopes(Token) ->
-    AdminKey = list_to_binary(hl_config:get_str("HL_ADMIN_KEY", "")),
-    EnvKey   = list_to_binary(hl_config:get_str("HL_API_KEY", "dev-secret")),
-    if
-        AdminKey =/= <<>> andalso Token =:= AdminKey ->
-            [<<"admin">>, <<"*">>];
-        Token =:= EnvKey ->
-            [<<"*">>];
-        true ->
-            case hl_api_key_store:lookup_scopes(Token) of
-                []     -> [];
-                Scopes -> Scopes
+    AuthMode = hl_config:get_str("HL_AUTH_MODE", "api_key"),
+    case AuthMode of
+        "service_token" ->
+            ServiceToken = list_to_binary(hl_config:get_str("HL_SERVICE_TOKEN", "")),
+            if
+                ServiceToken =/= <<>> andalso Token =:= ServiceToken -> [<<"*">>];
+                true -> []
+            end;
+        _ ->
+            AdminKey = list_to_binary(hl_config:get_str("HL_ADMIN_KEY", "")),
+            EnvKey   = list_to_binary(hl_config:get_str("HL_API_KEY", "dev-secret")),
+            if
+                AdminKey =/= <<>> andalso Token =:= AdminKey ->
+                    [<<"admin">>, <<"*">>];
+                Token =:= EnvKey ->
+                    [<<"*">>];
+                true ->
+                    case hl_api_key_store:lookup_scopes(Token) of
+                        []     -> [];
+                        Scopes -> Scopes
+                    end
             end
     end.
 

@@ -1,6 +1,6 @@
-## Single-node, no distribution needed
--sname hookline
--setcookie hookline_secret
+## Distribution — required for leader election via global
+-name hookline@${NODE_HOSTNAME}
+-setcookie ${ERLANG_COOKIE}
 
 ## Async thread pool
 +A 64

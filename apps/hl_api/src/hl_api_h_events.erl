@@ -23,35 +23,7 @@ handle(<<"POST">>, Req0, Opts) ->
             {ok, Req1, Opts};
         {ok, Body, Req1} ->
             TId = get_tenant(Req1),
-            case hl_core:check_queue_depth(TId) of
-                {error, overloaded} ->
-                    Req2 = cowboy_req:set_resp_header(<<"retry-after">>, <<"5">>, Req1),
-                    hl_api_error:reply(Req2, 429, overloaded,
-                        <<"Queue depth exceeded; retry after 5 seconds">>),
-                    {ok, Req2, Opts};
-                ok ->
-                    case jsx:decode(Body, [return_maps]) of
-                        Map when is_map(Map) ->
-                            case hl_core:publish_event(TId, Map) of
-                                {ok, Event} ->
-                                    reply_json(201, Event, Req1, Opts);
-                                {ok, Event, deduped} ->
-                                    reply_json(200,
-                                        Event#{<<"deduped">> => true}, Req1, Opts);
-                                {error, {missing_field, F}} ->
-                                    hl_api_error:reply(Req1, 400, validation_error,
-                                        <<"Missing field: ", F/binary>>),
-                                    {ok, Req1, Opts};
-                                {error, Reason} ->
-                                    hl_api_error:reply(Req1, 500, internal_error,
-                                        list_to_binary(io_lib:format("~p", [Reason]))),
-                                    {ok, Req1, Opts}
-                            end;
-                        _ ->
-                            hl_api_error:reply(Req1, 400, invalid_json, <<>>),
-                            {ok, Req1, Opts}
-                    end
-            end
+            handle_post(TId, Body, Req1, Opts)
     end;
 
 %% GET /v1/events/:id  or  GET /v1/events?limit=N&cursor=...&from_ms=...&to_ms=...&topic=...
@@ -110,6 +82,69 @@ handle(<<"GET">>, Req0, Opts) ->
 handle(_, Req0, Opts) ->
     Req = cowboy_req:reply(405, #{}, <<>>, Req0),
     {ok, Req, Opts}.
+
+%% Route POST to leader (local publish) or proxy to leader node.
+handle_post(TenantId, Body, Req0, Opts) ->
+    case hl_leader:is_leader() of
+        true  -> handle_publish_local(TenantId, Body, Req0, Opts);
+        false -> handle_publish_proxy(TenantId, Body, Req0, Opts)
+    end.
+
+handle_publish_local(TId, Body, Req1, Opts) ->
+    case hl_core:check_queue_depth(TId) of
+        {error, overloaded} ->
+            Req2 = cowboy_req:set_resp_header(<<"retry-after">>, <<"5">>, Req1),
+            hl_api_error:reply(Req2, 429, overloaded,
+                <<"Queue depth exceeded; retry after 5 seconds">>),
+            {ok, Req2, Opts};
+        ok ->
+            case jsx:decode(Body, [return_maps]) of
+                Map when is_map(Map) ->
+                    case hl_core:publish_event(TId, Map) of
+                        {ok, Event} ->
+                            reply_json(201, Event, Req1, Opts);
+                        {ok, Event, deduped} ->
+                            reply_json(200,
+                                Event#{<<"deduped">> => true}, Req1, Opts);
+                        {error, {missing_field, F}} ->
+                            hl_api_error:reply(Req1, 400, validation_error,
+                                <<"Missing field: ", F/binary>>),
+                            {ok, Req1, Opts};
+                        {error, Reason} ->
+                            hl_api_error:reply(Req1, 500, internal_error,
+                                list_to_binary(io_lib:format("~p", [Reason]))),
+                            {ok, Req1, Opts}
+                    end;
+                _ ->
+                    hl_api_error:reply(Req1, 400, invalid_json, <<>>),
+                    {ok, Req1, Opts}
+            end
+    end.
+
+handle_publish_proxy(TenantId, Body, Req0, Opts) ->
+    case hl_leader_proxy:forward(TenantId, Body) of
+        {ok, {{_, 200, _}, _, RespBody}} ->
+            Req1 = cowboy_req:reply(200,
+                #{<<"content-type">> => <<"application/json">>},
+                RespBody, Req0),
+            {ok, Req1, Opts};
+        {ok, {{_, 201, _}, _, RespBody}} ->
+            Req1 = cowboy_req:reply(201,
+                #{<<"content-type">> => <<"application/json">>},
+                RespBody, Req0),
+            {ok, Req1, Opts};
+        {ok, {{_, Status, _}, _, RespBody}} ->
+            Req1 = cowboy_req:reply(Status, #{}, RespBody, Req0),
+            {ok, Req1, Opts};
+        {error, no_leader} ->
+            Req1 = cowboy_req:reply(503, #{},
+                <<"{\"error\":\"no_leader\"}">>, Req0),
+            {ok, Req1, Opts};
+        {error, _} ->
+            Req1 = cowboy_req:reply(502, #{},
+                <<"{\"error\":\"proxy_error\"}">>, Req0),
+            {ok, Req1, Opts}
+    end.
 
 get_tenant(Req) ->
     maps:get(tenant_id, Req,
