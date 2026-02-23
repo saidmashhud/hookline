@@ -14,6 +14,35 @@
 - **Prometheus metrics** at `/metrics`
 - **Single Docker container** — no external dependencies
 
+## Deployment modes
+
+### Standalone
+
+HookLine runs as a fully self-contained service. Your application publishes
+events and manages endpoints directly via the HookLine REST API.
+
+```bash
+docker-compose up -d
+```
+
+### Embedded (control-plane managed)
+
+In embedded mode, HookLine handles **delivery** only. A control-plane service
+(such as [Mashgate `mg-events`](https://github.com/saidmashhud/mashgate)) owns
+endpoint registration and subscription management, and calls HookLine with a
+`X-Tenant-Id` header to scope all operations.
+
+```bash
+HL_AUTH_MODE=service_token \
+HL_SERVICE_TOKEN=<shared-secret> \
+HL_SINGLE_TENANT=false \
+docker compose up -d
+```
+
+Mashgate's `mg-events` service uses this mode — it stores endpoint/subscription
+metadata in its own PostgreSQL database and uses HookLine purely as the delivery
+engine. See [docs/embedded-mode.md](docs/embedded-mode.md) for full details.
+
 ---
 
 ## Quickstart
@@ -165,7 +194,7 @@ def webhook():
 
 ## API Reference
 
-Full OpenAPI spec available at **`/openapi.yaml`** when the server is running, or in [`openapi/openapi.yaml`](openapi/openapi.yaml).
+Full OpenAPI spec available at **`/openapi.yaml`** when the server is running, or in [`openapi/openapi.yaml`](openapi/openapi.yaml) / [`docs/openapi/hookline.yaml`](docs/openapi/hookline.yaml).
 
 Key endpoints:
 
@@ -252,6 +281,10 @@ docker-compose up
 ```
 
 ---
+
+## Used by
+
+**[Mashgate](https://github.com/saidmashhud/mashgate)** — open-source payment infrastructure for Central Asia — uses HookLine as its webhook delivery engine via embedded mode. The `mg-events` gRPC service acts as the control plane; HookLine handles delivery, retry, DLQ, and SSE streaming.
 
 ## Contributing
 

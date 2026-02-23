@@ -1,0 +1,564 @@
+openapi: "3.0.3"
+info:
+  title: HookLine API
+  description: |
+    HookLine — OSS webhook delivery service.
+
+    Authenticate using a Bearer token in the `Authorization` header:
+    ```
+    Authorization: Bearer <api-key>
+    ```
+  version: "0.1.0"
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Events
+  - name: Endpoints
+  - name: Subscriptions
+  - name: Deliveries
+  - name: DLQ
+  - name: Replay
+  - name: Stream
+  - name: DevInbox
+  - name: System
+
+paths:
+  /healthz:
+    get:
+      tags: [System]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /readyz:
+    get:
+      tags: [System]
+      summary: Readiness probe
+      security: []
+      responses:
+        "200":
+          description: Ready
+        "503":
+          description: Not ready
+
+  /metrics:
+    get:
+      tags: [System]
+      summary: Prometheus metrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus text format
+
+  /v1/events:
+    post:
+      tags: [Events]
+      summary: Publish an event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventInput"
+      responses:
+        "201":
+          description: Event published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    get:
+      tags: [Events]
+      summary: List events
+      parameters:
+        - name: topic
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+
+  /v1/events/{id}:
+    get:
+      tags: [Events]
+      summary: Get event by ID
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/endpoints:
+    post:
+      tags: [Endpoints]
+      summary: Create a webhook endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EndpointInput"
+      responses:
+        "201":
+          description: Endpoint created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Endpoint"
+
+    get:
+      tags: [Endpoints]
+      summary: List endpoints
+      responses:
+        "200":
+          description: List of endpoints
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EndpointList"
+
+  /v1/endpoints/{id}:
+    get:
+      tags: [Endpoints]
+      summary: Get endpoint
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Endpoint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Endpoint"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Endpoints]
+      summary: Delete endpoint
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
+
+  /v1/subscriptions:
+    post:
+      tags: [Subscriptions]
+      summary: Create a subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionInput"
+      responses:
+        "201":
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+
+    get:
+      tags: [Subscriptions]
+      summary: List subscriptions
+      responses:
+        "200":
+          description: List of subscriptions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionList"
+
+  /v1/subscriptions/{id}:
+    delete:
+      tags: [Subscriptions]
+      summary: Delete subscription
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
+
+  /v1/deliveries:
+    get:
+      tags: [Deliveries]
+      summary: List delivery attempts
+      parameters:
+        - name: event_id
+          in: query
+          schema:
+            type: string
+        - name: endpoint_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, success, failed]
+      responses:
+        "200":
+          description: List of delivery attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliveryList"
+
+  /v1/dlq:
+    get:
+      tags: [DLQ]
+      summary: List dead letter queue entries
+      responses:
+        "200":
+          description: DLQ entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DLQList"
+
+  /v1/dlq/{id}:
+    post:
+      tags: [DLQ]
+      summary: Requeue a DLQ entry
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Requeued
+
+    delete:
+      tags: [DLQ]
+      summary: Delete a DLQ entry
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
+
+  /v1/replay:
+    post:
+      tags: [Replay]
+      summary: Replay an event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id]
+              properties:
+                event_id:
+                  type: string
+      responses:
+        "200":
+          description: Replay jobs created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_ids:
+                    type: array
+                    items:
+                      type: string
+
+  /v1/stream:
+    get:
+      tags: [Stream]
+      summary: SSE stream of events
+      parameters:
+        - name: topic
+          in: query
+          description: Topic pattern (e.g. orders.*)
+          schema:
+            type: string
+            default: "#"
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /v1/dev/inbox:
+    post:
+      tags: [DevInbox]
+      summary: Create a test inbox
+      security: []
+      responses:
+        "201":
+          description: Inbox created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  receive_url:
+                    type: string
+
+    get:
+      tags: [DevInbox]
+      summary: List received messages
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+
+  /v1/dev/inbox/receive/{token}:
+    post:
+      tags: [DevInbox]
+      summary: Receive a webhook (used as endpoint URL)
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Accepted
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+    Offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+
+    EventInput:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+          example: orders.created
+        data:
+          type: object
+          additionalProperties: true
+
+    Event:
+      allOf:
+        - $ref: "#/components/schemas/EventInput"
+        - type: object
+          properties:
+            id:
+              type: string
+            tenant_id:
+              type: string
+            created_at:
+              type: integer
+              description: Unix timestamp (ms)
+            job_ids:
+              type: array
+              items:
+                type: string
+
+    EventList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+
+    EndpointInput:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          example: https://example.com/webhooks
+        secret:
+          type: string
+          description: HMAC signing secret
+        description:
+          type: string
+
+    Endpoint:
+      allOf:
+        - $ref: "#/components/schemas/EndpointInput"
+        - type: object
+          properties:
+            endpoint_id:
+              type: string
+            tenant_id:
+              type: string
+            created_at:
+              type: integer
+
+    EndpointList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Endpoint"
+
+    SubscriptionInput:
+      type: object
+      required: [endpoint_id, topic_pattern]
+      properties:
+        endpoint_id:
+          type: string
+        topic_pattern:
+          type: string
+          example: "orders.*"
+        description:
+          type: string
+
+    Subscription:
+      allOf:
+        - $ref: "#/components/schemas/SubscriptionInput"
+        - type: object
+          properties:
+            subscription_id:
+              type: string
+            tenant_id:
+              type: string
+            created_at:
+              type: integer
+
+    SubscriptionList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Subscription"
+
+    DeliveryList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+
+    DLQList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              job_id:
+                type: string
+              event_id:
+                type: string
+              endpoint_id:
+                type: string
+              reason:
+                type: string
+              attempt_count:
+                type: integer
