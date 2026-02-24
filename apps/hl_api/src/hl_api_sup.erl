@@ -16,4 +16,8 @@ init([]) ->
                     start   => {hl_tenant_store, start_link, []},
                     restart => permanent,
                     type    => worker},
-    {ok, {SupFlags, [KeyStore, TenantStore]}}.
+    KeyRotation = #{id      => hl_key_rotation,
+                    start   => {hl_key_rotation, start_link, []},
+                    restart => permanent,
+                    type    => worker},
+    {ok, {SupFlags, [KeyStore, TenantStore, KeyRotation]}}.

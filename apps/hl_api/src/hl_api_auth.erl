@@ -71,8 +71,14 @@ verify_token(Token) ->
             {ok, DefaultTenant};
         true ->
             case hl_api_key_store:lookup_by_token(Token) of
-                {ok, #{tenant_id := TId}} -> {ok, TId};
-                {error, not_found}        -> {error, unauthorized}
+                {ok, #{tenant_id := TId}} ->
+                    {ok, TId};
+                {error, not_found} ->
+                    %% Fallback: check rotation overlap window
+                    case hl_key_rotation:lookup_expiring(Token) of
+                        {ok, TId} -> {ok, TId};
+                        not_found -> {error, unauthorized}
+                    end
             end
     end.
 
@@ -268,8 +274,14 @@ get_scopes(Token) ->
             [<<"*">>];
         true ->
             case hl_api_key_store:lookup_scopes(Token) of
-                []     -> [];
-                Scopes -> Scopes
+                [] ->
+                    %% May be a rotation overlap key — grant wildcard scopes
+                    case hl_key_rotation:lookup_expiring(Token) of
+                        {ok, _} -> [<<"*">>];
+                        not_found -> []
+                    end;
+                Scopes ->
+                    Scopes
             end
     end.
 

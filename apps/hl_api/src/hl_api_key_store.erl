@@ -16,8 +16,8 @@
 -behaviour(gen_server).
 
 -export([start_link/0]).
--export([put/4, lookup_by_token/1, lookup_scopes/1, list/1, delete/2,
-         delete_tenant/1]).
+-export([put/4, lookup_by_token/1, lookup_hash_by_id/1, lookup_scopes/1,
+         list/1, delete/2, delete_tenant/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(ETS,  hl_apikeys_ets).
@@ -43,6 +43,13 @@ lookup_by_token(Token) ->
             {ok, #{tenant_id => TenantId, scopes => Scopes}};
         [] ->
             {error, not_found}
+    end.
+
+%% Returns {ok, Hash} | {error, not_found} — used by rotation handler.
+lookup_hash_by_id(KeyId) ->
+    case ets:lookup(?ETS, KeyId) of
+        [{KeyId, _T, Hash, _, _, _, _}] -> {ok, Hash};
+        []                              -> {error, not_found}
     end.
 
 %% Returns list of scope binaries, or [] if not found.

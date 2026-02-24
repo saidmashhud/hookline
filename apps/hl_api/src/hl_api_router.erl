@@ -48,6 +48,7 @@ routes() ->
         {"/v1/apikeys/:id",                          hl_api_h_apikeys,         #{}},
         %% Tenant management (admin only) — specific routes before wildcards
         {"/v1/tenants/:id/stats",                    hl_api_h_tenants,         #{action => stats}},
+        {"/v1/tenants/:id/rotate-key",               hl_api_h_tenant_rotate,   #{}},
         {"/v1/tenants/:tenant_id/api-keys/:key_id",  hl_api_h_tenant_apikeys,  #{}},
         {"/v1/tenants/:tenant_id/api-keys",          hl_api_h_tenant_apikeys,  #{}},
         {"/v1/tenants/:id",                          hl_api_h_tenants,         #{}},

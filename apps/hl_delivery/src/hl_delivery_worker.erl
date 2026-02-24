@@ -92,7 +92,7 @@ deliver(Job) ->
                             Result = try
                                 do_http_post(URL, Secret, PayloadBin,
                                              EventId, Topic, AttemptId, TenantId,
-                                             TimeoutMs, EpHeaders, TraceCtx)
+                                             TimeoutMs, EpHeaders, TraceCtx, AttemptN)
                             catch
                                 _:Err -> {error, Err}
                             end,
@@ -146,7 +146,7 @@ deliver_actor(Job, Endpoint) ->
     T0       = erlang:monotonic_time(millisecond),
     HttpResult = try
         do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId,
-                     TenantId, TimeoutMs, EpHeaders, TraceCtx)
+                     TenantId, TimeoutMs, EpHeaders, TraceCtx, AttemptN)
     catch
         _:Err -> {error, Err}
     end,
@@ -219,14 +219,10 @@ build_payload(Event, Job, AttemptId) ->
     }).
 
 do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
-             TimeoutMs, EpHeaders) ->
-    do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
-                 TimeoutMs, EpHeaders, #{}).
-
-do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
-             TimeoutMs, EpHeaders, TraceCtx) ->
-    Ts = erlang:system_time(millisecond),
+             TimeoutMs, EpHeaders, TraceCtx, AttemptN) ->
+    Ts    = erlang:system_time(millisecond),
     TsBin = integer_to_binary(Ts),
+    AttemptNBin = integer_to_binary(AttemptN),
 
     SigHeader = case Secret of
         <<>> -> undefined;
@@ -240,12 +236,18 @@ do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
     ], V =/= <<>>],
 
     Headers = [
-        {<<"content-type">>,     <<"application/json">>},
-        {<<"user-agent">>,       <<"HookLine/0.1.0">>},
-        {<<"x-gp-event-id">>,    EventId},
-        {<<"x-gp-topic">>,       Topic},
-        {<<"x-gp-delivery-id">>, AttemptId},
-        {<<"x-gp-timestamp">>,   TsBin}
+        {<<"content-type">>,           <<"application/json">>},
+        {<<"user-agent">>,             <<"HookLine/0.1.0">>},
+        %% Legacy x-gp-* headers (kept for backwards compat)
+        {<<"x-gp-event-id">>,          EventId},
+        {<<"x-gp-topic">>,             Topic},
+        {<<"x-gp-delivery-id">>,       AttemptId},
+        {<<"x-gp-timestamp">>,         TsBin},
+        %% Standard x-hookline-* headers (ТЗ at-least-once contract)
+        {<<"x-hookline-event-id">>,    EventId},
+        {<<"x-hookline-delivery-id">>, AttemptId},
+        {<<"x-hookline-timestamp">>,   TsBin},
+        {<<"x-hookline-attempt">>,     AttemptNBin}
         | case SigHeader of
               undefined -> [];
               Sig -> [{<<"x-gp-signature">>, Sig}]
