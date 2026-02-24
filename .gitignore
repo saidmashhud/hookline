@@ -17,6 +17,7 @@ site/
 .env
 *.log
 .artifacts/
+.baseline/
 
 # Scala/sbt (bridge)
 bridge/target/
