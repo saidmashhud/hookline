@@ -101,6 +101,18 @@ bash test/e2e.sh
 
 All 16 scenarios must pass (SSE scenario may be skipped in restricted networks).
 
+Run the production-readiness gate (load + soak + chaos):
+
+```bash
+HL_URL=https://your-hookline.example.com \
+HL_AUTH_MODE=api_key \
+HL_API_KEY=your-production-key \
+bash test/production-readiness.sh
+```
+
+For full release decision criteria (including rollback/restore + DR drills), use
+[`readiness-gate.md`](readiness-gate.md).
+
 ## Capacity Planning
 
 | Metric | Single node (16 workers) |

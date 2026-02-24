@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # HookLine — complex end-to-end test scenarios
-# Usage: HL_URL=http://localhost:8080 HL_API_KEY=change-me-in-production bash test/e2e.sh
+# Usage: HL_URL=http://localhost:8080 HL_API_KEY=<api-key> bash test/e2e.sh
 set -euo pipefail
 
 HL_URL="${HL_URL:-http://localhost:8080}"
-HL_API_KEY="${HL_API_KEY:-change-me-in-production}"
+HL_API_KEY="${HL_API_KEY:?HL_API_KEY is required}"
+HL_ADMIN_KEY="${HL_ADMIN_KEY:-}"
 PASS=0; FAIL=0; SKIP=0
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -390,33 +391,45 @@ fi
 
 section "Scenario 12: API Key management"
 
-KEY_RESP=$(hl_post "/v1/apikeys" \
-  '{"name":"e2e test key","scopes":["events:read","endpoints:manage"]}')
-NEW_KEY_ID=$(echo "$KEY_RESP" | jq_str "['key_id']")
-NEW_TOKEN=$(echo "$KEY_RESP" | jq_str "['key']")
-
-if [[ -n "$NEW_KEY_ID" && -n "$NEW_TOKEN" ]]; then
-  pass "API key created (id=${NEW_KEY_ID:0:8}… token=gp_***)"
+if [[ -z "$HL_ADMIN_KEY" ]]; then
+  skip "API key management (HL_ADMIN_KEY not set; admin scope required)"
 else
-  fail "API key creation" "key_id=$NEW_KEY_ID token=$NEW_TOKEN"
-fi
+  KEY_RESP=$(curl -s -X POST \
+    -H "Authorization: Bearer $HL_ADMIN_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"e2e test key","scopes":["events:read","endpoints:manage"]}' \
+    "${HL_URL}/v1/apikeys")
+  NEW_KEY_ID=$(echo "$KEY_RESP" | jq_str "['key_id']")
+  NEW_TOKEN=$(echo "$KEY_RESP" | jq_str "['key']")
 
-# New key can list events
-if [[ -n "$NEW_TOKEN" ]]; then
-  STATUS_NEW=$(curl -s -o /dev/null -w "%{http_code}" \
-    -H "Authorization: Bearer $NEW_TOKEN" "${HL_URL}/v1/events?limit=1")
-  if [[ "$STATUS_NEW" == "200" ]]; then
-    pass "New API key authenticated successfully"
+  if [[ -n "$NEW_KEY_ID" && -n "$NEW_TOKEN" ]]; then
+    pass "API key created (id=${NEW_KEY_ID:0:8}… token=gp_***)"
   else
-    fail "New API key auth" "expected 200, got $STATUS_NEW"
+    fail "API key creation" "response: $KEY_RESP"
   fi
-fi
 
-# Revoke key
-if [[ -n "$NEW_KEY_ID" ]]; then
-  hl_del "/v1/apikeys/$NEW_KEY_ID" >/dev/null 2>&1 \
-    && pass "API key revoked" \
-    || fail "API key revoke" ""
+  # New key can list events
+  if [[ -n "$NEW_TOKEN" ]]; then
+    STATUS_NEW=$(curl -s -o /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer $NEW_TOKEN" "${HL_URL}/v1/events?limit=1")
+    if [[ "$STATUS_NEW" == "200" ]]; then
+      pass "New API key authenticated successfully"
+    else
+      fail "New API key auth" "expected 200, got $STATUS_NEW"
+    fi
+  fi
+
+  # Revoke key
+  if [[ -n "$NEW_KEY_ID" ]]; then
+    STATUS_REVOKE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+      -H "Authorization: Bearer $HL_ADMIN_KEY" \
+      "${HL_URL}/v1/apikeys/$NEW_KEY_ID")
+    if [[ "$STATUS_REVOKE" == "204" ]]; then
+      pass "API key revoked"
+    else
+      fail "API key revoke" "expected 204, got $STATUS_REVOKE"
+    fi
+  fi
 fi
 
 # ── Scenario 13: Concurrent event publishing ──────────────────────────────────

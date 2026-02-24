@@ -34,5 +34,7 @@ int  hl_dlq_put(hl_dlq_t *dlq, const hl_dlq_entry_t *entry);
 int  hl_dlq_list(hl_dlq_t *dlq, const char *tenant_id,
                  hl_dlq_entry_t **out, int *count);
 int  hl_dlq_delete(hl_dlq_t *dlq, const char *job_id);
+int  hl_dlq_delete_tenant(hl_dlq_t *dlq, const char *job_id,
+                          const char *tenant_id);
 
 #endif /* HL_DLQ_H */

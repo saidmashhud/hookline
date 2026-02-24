@@ -33,7 +33,7 @@ routes() ->
         {"/v1/replay/:id",                     hl_api_h_replay,    #{}},
         %% DLQ
         {"/v1/dlq",                            hl_api_h_dlq,       #{}},
-        {"/v1/dlq/:id",                        hl_api_h_dlq,       #{}},
+        {"/v1/dlq/:id/requeue",                hl_api_h_dlq,       #{action => requeue}},
         %% SSE stream
         {"/v1/stream",                         hl_api_h_stream,    #{}},
         %% API Keys — current tenant self-service

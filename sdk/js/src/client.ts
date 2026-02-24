@@ -126,14 +126,18 @@ export class HookLineClient {
   /**
    * Verify a webhook signature from HookLine.
    * @param payload - Raw request body bytes
+   * @param timestamp - Value of x-gp-timestamp header
    * @param signature - Value of x-gp-signature header
    * @param secret - Endpoint secret
    */
   static async verifySignature(
     payload: string | Uint8Array,
+    timestamp: string,
     signature: string,
     secret: string
   ): Promise<boolean> {
+    if (!timestamp || !signature.startsWith("v1=")) return false;
+
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey(
       "raw",
@@ -143,11 +147,16 @@ export class HookLineClient {
       ["verify"]
     );
     const body = typeof payload === "string" ? enc.encode(payload) : payload;
-    const sigHex = signature.replace(/^sha256=/, "");
-    const sigBytes = Uint8Array.from(
-      sigHex.match(/.{2}/g)!.map((b) => parseInt(b, 16))
-    );
-    return crypto.subtle.verify("HMAC", key, sigBytes, body);
+    const prefix = enc.encode(`${timestamp}.`);
+    const signedPayload = new Uint8Array(prefix.length + body.length);
+    signedPayload.set(prefix, 0);
+    signedPayload.set(body, prefix.length);
+
+    const sigHex = signature.slice(3);
+    const hexPairs = sigHex.match(/.{2}/g);
+    if (!hexPairs) return false;
+    const sigBytes = Uint8Array.from(hexPairs.map((b) => parseInt(b, 16)));
+    return crypto.subtle.verify("HMAC", key, sigBytes, signedPayload);
   }
 
   /**

@@ -23,20 +23,23 @@ The body is the raw JSON event payload.
 When an endpoint has a `secret` configured, HookLine signs each delivery:
 
 ```
-x-gp-signature: sha256=<hex-encoded HMAC-SHA256>
+x-gp-signature: v1=<hex-encoded HMAC-SHA256>
 ```
 
-The signature is computed as `HMAC-SHA256(secret, raw_body)`.
+The signature is computed as:
+
+`HMAC-SHA256(secret, "{x-gp-timestamp}.{raw_body}")`
 
 ### Node.js
 
 ```javascript
 const crypto = require("crypto");
 
-function verifySignature(rawBody, signatureHeader, secret) {
-  const expected = "sha256=" + crypto
+function verifySignature(rawBody, timestamp, signatureHeader, secret) {
+  const signedPayload = `${timestamp}.${rawBody}`;
+  const expected = "v1=" + crypto
     .createHmac("sha256", secret)
-    .update(rawBody)
+    .update(signedPayload)
     .digest("hex");
   return crypto.timingSafeEqual(
     Buffer.from(signatureHeader),
@@ -46,7 +49,9 @@ function verifySignature(rawBody, signatureHeader, secret) {
 
 // In your Express handler:
 app.post("/webhook", express.raw({ type: "*/*" }), (req, res) => {
-  if (!verifySignature(req.body, req.headers["x-gp-signature"], process.env.WEBHOOK_SECRET)) {
+  const ts = req.headers["x-gp-timestamp"];
+  const sig = req.headers["x-gp-signature"];
+  if (!ts || !sig || !verifySignature(req.body, ts, sig, process.env.WEBHOOK_SECRET)) {
     return res.status(401).json({ error: "invalid signature" });
   }
   const event = JSON.parse(req.body);
@@ -60,9 +65,10 @@ app.post("/webhook", express.raw({ type: "*/*" }), (req, res) => {
 ```python
 import hmac, hashlib
 
-def verify_signature(raw_body: bytes, signature_header: str, secret: str) -> bool:
-    expected = "sha256=" + hmac.new(
-        secret.encode(), raw_body, hashlib.sha256
+def verify_signature(raw_body: bytes, timestamp: str, signature_header: str, secret: str) -> bool:
+    signed_payload = f"{timestamp}.".encode() + raw_body
+    expected = "v1=" + hmac.new(
+        secret.encode(), signed_payload, hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, signature_header)
 
@@ -70,8 +76,9 @@ def verify_signature(raw_body: bytes, signature_header: str, secret: str) -> boo
 @app.post("/webhook")
 async def webhook(request: Request):
     body = await request.body()
+    ts = request.headers.get("x-gp-timestamp", "")
     sig = request.headers.get("x-gp-signature", "")
-    if not verify_signature(body, sig, os.environ["WEBHOOK_SECRET"]):
+    if not ts or not verify_signature(body, ts, sig, os.environ["WEBHOOK_SECRET"]):
         return JSONResponse({"error": "invalid signature"}, status_code=401)
     event = json.loads(body)
     # ... process event

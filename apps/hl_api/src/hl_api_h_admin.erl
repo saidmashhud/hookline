@@ -2,9 +2,14 @@
 -export([init/2]).
 
 init(Req0, Opts) ->
-    Method = cowboy_req:method(Req0),
-    Path   = cowboy_req:path(Req0),
-    handle(Method, Path, Req0, Opts).
+    case hl_api_auth:require_scope(Req0, <<"admin">>) of
+        ok ->
+            Method = cowboy_req:method(Req0),
+            Path   = cowboy_req:path(Req0),
+            handle(Method, Path, Req0, Opts);
+        {stop, _Code} ->
+            {ok, Req0, Opts}
+    end.
 
 %% GET /v1/admin/stats
 handle(<<"GET">>, <<"/v1/admin/stats">>, Req0, Opts) ->

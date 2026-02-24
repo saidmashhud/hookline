@@ -76,6 +76,10 @@ object HookLineClient:
   private object PublishRequest:
     given JsonEncoder[PublishRequest] = DeriveJsonEncoder.gen[PublishRequest]
 
+  private final case class ReplayRequest(event_id: String)
+  private object ReplayRequest:
+    given JsonEncoder[ReplayRequest] = DeriveJsonEncoder.gen[ReplayRequest]
+
   // ─── Live implementation ──────────────────────────────────────────────────
 
   private[hookline] final class Live(client: Client, baseUrl: URL, apiKey: String) extends HookLineClient:
@@ -190,20 +194,20 @@ object HookLineClient:
       getList[DlqEntry](s"/v1/dlq?limit=$limit")
 
     def replayEvent(eventId: String): IO[HookLineError, Unit] =
-      post[Json, Json](s"/v1/events/$eventId/replay", Json.Obj()).unit
+      post[ReplayRequest, Json]("/v1/replay", ReplayRequest(eventId)).unit
 
     // ── API Keys ──
 
     def createApiKey(req: CreateApiKeyRequest): IO[HookLineError, ApiKeyCreated] =
-      post[CreateApiKeyRequest, ApiKeyCreated]("/v1/api-keys", req)
+      post[CreateApiKeyRequest, ApiKeyCreated]("/v1/apikeys", req)
 
     def listApiKeys(): IO[HookLineError, List[ApiKey]] =
-      getList[ApiKey]("/v1/api-keys")
+      getList[ApiKey]("/v1/apikeys")
 
     def deleteApiKey(keyId: String): IO[HookLineError, Unit] =
-      delete(s"/v1/api-keys/$keyId")
+      delete(s"/v1/apikeys/$keyId")
 
     // ── Health ──
 
     def health(): IO[HookLineError, Json] =
-      get[Json]("/health")
+      get[Json]("/healthz")

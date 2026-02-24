@@ -7,9 +7,8 @@ import java.lang.{System => JSystem}
 
 object HookLineSpec extends ZIOSpecDefault:
 
-  // A fixed secret and timestamp used across tests
+  // A fixed secret used across tests
   private val secret    = "test-secret-key"
-  private val timestamp = "1700000000"
 
   // Pre-computed valid signature for body `{"ok":true}` with the above secret/timestamp
   private def computeSignature(ts: String, body: String): String =
@@ -27,14 +26,14 @@ object HookLineSpec extends ZIOSpecDefault:
 
     test("valid signature returns true") {
       val body = """{"ok":true}"""
-      val now  = (JSystem.currentTimeMillis() / 1000L).toString
+      val now  = JSystem.currentTimeMillis().toString
       val sig  = computeSignature(now, body)
       assertTrue(HookLine.verifySignature(secret, now, sig, body.getBytes("UTF-8")))
     },
 
     test("wrong secret returns false") {
       val body = """{"ok":true}"""
-      val now  = (JSystem.currentTimeMillis() / 1000L).toString
+      val now  = JSystem.currentTimeMillis().toString
       val sig  = computeSignature(now, body)
       assertTrue(!HookLine.verifySignature("wrong-secret", now, sig, body.getBytes("UTF-8")))
     },
@@ -42,34 +41,34 @@ object HookLineSpec extends ZIOSpecDefault:
     test("tampered body returns false") {
       val body    = """{"ok":true}"""
       val tampered = """{"ok":false}"""
-      val now     = (JSystem.currentTimeMillis() / 1000L).toString
+      val now     = JSystem.currentTimeMillis().toString
       val sig     = computeSignature(now, body)
       assertTrue(!HookLine.verifySignature(secret, now, sig, tampered.getBytes("UTF-8")))
     },
 
     test("expired timestamp (>5 min) returns false") {
       val body = """{"ok":true}"""
-      val old  = ((JSystem.currentTimeMillis() / 1000L) - 600L).toString // 10 min ago
+      val old  = (JSystem.currentTimeMillis() - 600000L).toString // 10 min ago
       val sig  = computeSignature(old, body)
       assertTrue(!HookLine.verifySignature(secret, old, sig, body.getBytes("UTF-8")))
     },
 
     test("future timestamp (>5 min) returns false") {
       val body   = """{"ok":true}"""
-      val future = ((JSystem.currentTimeMillis() / 1000L) + 600L).toString
+      val future = (JSystem.currentTimeMillis() + 600000L).toString
       val sig    = computeSignature(future, body)
       assertTrue(!HookLine.verifySignature(secret, future, sig, body.getBytes("UTF-8")))
     },
 
     test("missing v1= prefix returns false") {
       val body  = """{"ok":true}"""
-      val now   = (JSystem.currentTimeMillis() / 1000L).toString
+      val now   = JSystem.currentTimeMillis().toString
       val sig   = computeSignature(now, body).drop("v1=".length) // strip prefix
       assertTrue(!HookLine.verifySignature(secret, now, sig, body.getBytes("UTF-8")))
     },
 
     test("invalid hex in signature returns false") {
-      val now = (JSystem.currentTimeMillis() / 1000L).toString
+      val now = JSystem.currentTimeMillis().toString
       assertTrue(!HookLine.verifySignature(secret, now, "v1=ZZZZ", "body".getBytes("UTF-8")))
     },
 

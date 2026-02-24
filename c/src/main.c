@@ -521,8 +521,18 @@ static void dispatch(int client_fd, const char *json) {
 
     } else if (strcmp(cmd, "store.requeue_dlq") == 0) {
         char job_id[HL_DLQ_JOB_ID_LEN] = {0};
+        char tenant_id[64] = {0};
         json_str(json, "job_id", job_id, sizeof(job_id));
-        if (hl_dlq_delete(&g_dlq, job_id) == 0)
+        json_str(json, "tenant_id", tenant_id, sizeof(tenant_id));
+        if (!job_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing job_id\"}");
+            return;
+        }
+        if (!tenant_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing tenant_id\"}");
+            return;
+        }
+        if (hl_dlq_delete_tenant(&g_dlq, job_id, tenant_id) == 0)
             hl_ipc_send_str(client_fd, "{\"ok\":true}");
         else
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
@@ -555,7 +565,17 @@ static void dispatch(int client_fd, const char *json) {
 
     } else if (strcmp(cmd, "store.get_endpoint") == 0) {
         char endpoint_id[64] = {0};
+        char tenant_id[64]   = {0};
         json_str(json, "endpoint_id", endpoint_id, sizeof(endpoint_id));
+        json_str(json, "tenant_id", tenant_id, sizeof(tenant_id));
+        if (!endpoint_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing endpoint_id\"}");
+            return;
+        }
+        if (!tenant_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing tenant_id\"}");
+            return;
+        }
         hl_offset_t off;
         if (hl_index_get(&g_index, endpoint_id, &off) != 0) {
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
@@ -564,6 +584,18 @@ static void dispatch(int client_fd, const char *json) {
         uint8_t *payload = NULL; uint32_t plen; uint8_t type;
         if (hl_store_read(&g_store, off, &payload, &plen, &type) != 0) {
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"read failed\"}");
+            return;
+        }
+        if (type != HL_TYPE_ENDPOINT) {
+            free(payload);
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
+            return;
+        }
+        char ep_tenant[64] = {0};
+        json_str((char *)payload, "tenant_id", ep_tenant, sizeof(ep_tenant));
+        if (!ep_tenant[0] || strcmp(ep_tenant, tenant_id) != 0) {
+            free(payload);
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
             return;
         }
         char *resp = malloc(plen + 32);
@@ -637,9 +669,37 @@ static void dispatch(int client_fd, const char *json) {
 
     } else if (strcmp(cmd, "store.delete_endpoint") == 0) {
         char endpoint_id[64] = {0};
+        char tenant_id[64]   = {0};
         json_str(json, "endpoint_id", endpoint_id, sizeof(endpoint_id));
+        json_str(json, "tenant_id", tenant_id, sizeof(tenant_id));
         if (!endpoint_id[0]) {
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing endpoint_id\"}");
+            return;
+        }
+        if (!tenant_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing tenant_id\"}");
+            return;
+        }
+        hl_offset_t off;
+        if (hl_index_get(&g_index, endpoint_id, &off) != 0) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
+            return;
+        }
+        uint8_t *payload = NULL; uint32_t plen; uint8_t type;
+        if (hl_store_read(&g_store, off, &payload, &plen, &type) != 0) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"read failed\"}");
+            return;
+        }
+        if (type != HL_TYPE_ENDPOINT) {
+            free(payload);
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
+            return;
+        }
+        char ep_tenant[64] = {0};
+        json_str((char *)payload, "tenant_id", ep_tenant, sizeof(ep_tenant));
+        free(payload);
+        if (!ep_tenant[0] || strcmp(ep_tenant, tenant_id) != 0) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
             return;
         }
         char tomb[256];
@@ -650,10 +710,38 @@ static void dispatch(int client_fd, const char *json) {
         hl_ipc_send_str(client_fd, "{\"ok\":true}");
 
     } else if (strcmp(cmd, "store.delete_subscription") == 0) {
-        char sub_id[64] = {0};
+        char sub_id[64]    = {0};
+        char tenant_id[64] = {0};
         json_str(json, "subscription_id", sub_id, sizeof(sub_id));
+        json_str(json, "tenant_id", tenant_id, sizeof(tenant_id));
         if (!sub_id[0]) {
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing subscription_id\"}");
+            return;
+        }
+        if (!tenant_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing tenant_id\"}");
+            return;
+        }
+        hl_offset_t off;
+        if (hl_index_get(&g_index, sub_id, &off) != 0) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
+            return;
+        }
+        uint8_t *payload = NULL; uint32_t plen; uint8_t type;
+        if (hl_store_read(&g_store, off, &payload, &plen, &type) != 0) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"read failed\"}");
+            return;
+        }
+        if (type != HL_TYPE_SUBSCRIPTION) {
+            free(payload);
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
+            return;
+        }
+        char sub_tenant[64] = {0};
+        json_str((char *)payload, "tenant_id", sub_tenant, sizeof(sub_tenant));
+        free(payload);
+        if (!sub_tenant[0] || strcmp(sub_tenant, tenant_id) != 0) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
             return;
         }
         char tomb[256];
@@ -829,8 +917,18 @@ static void dispatch(int client_fd, const char *json) {
 
     } else if (strcmp(cmd, "store.delete_dlq") == 0) {
         char job_id[HL_DLQ_JOB_ID_LEN] = {0};
+        char tenant_id[64] = {0};
         json_str(json, "job_id", job_id, sizeof(job_id));
-        if (hl_dlq_delete(&g_dlq, job_id) == 0)
+        json_str(json, "tenant_id", tenant_id, sizeof(tenant_id));
+        if (!job_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing job_id\"}");
+            return;
+        }
+        if (!tenant_id[0]) {
+            hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"missing tenant_id\"}");
+            return;
+        }
+        if (hl_dlq_delete_tenant(&g_dlq, job_id, tenant_id) == 0)
             hl_ipc_send_str(client_fd, "{\"ok\":true}");
         else
             hl_ipc_send_str(client_fd, "{\"ok\":false,\"error\":\"not found\"}");
@@ -840,11 +938,13 @@ static void dispatch(int client_fd, const char *json) {
         char event_id_f[64]    = {0};
         char endpoint_id_f[64] = {0};
         char attempt_id_f[64]  = {0};
+        char tenant_id_f[64]   = {0};
         int limit = 100;
         json_str(json, "job_id",      job_id_f,      sizeof(job_id_f));
         json_str(json, "event_id",    event_id_f,    sizeof(event_id_f));
         json_str(json, "endpoint_id", endpoint_id_f, sizeof(endpoint_id_f));
         json_str(json, "attempt_id",  attempt_id_f,  sizeof(attempt_id_f));
+        json_str(json, "tenant_id",   tenant_id_f,   sizeof(tenant_id_f));
         {int lv = 100; json_int(json, "limit", &lv); limit = (lv > 0 && lv <= 1000) ? lv : 100;}
 
         char *resp = malloc(4 * 1024 * 1024);
@@ -895,6 +995,11 @@ static void dispatch(int client_fd, const char *json) {
                         char rec[64] = {0};
                         json_str((char *)payload, "endpoint_id", rec, sizeof(rec));
                         if (strcmp(rec, endpoint_id_f) != 0) match = 0;
+                    }
+                    if (match && tenant_id_f[0]) {
+                        char rec[64] = {0};
+                        json_str((char *)payload, "tenant_id", rec, sizeof(rec));
+                        if (strcmp(rec, tenant_id_f) != 0) match = 0;
                     }
                     if (match && (size_t)(pos + plen + 8) < 4 * 1024 * 1024) {
                         if (!first) pos += sprintf(resp + pos, ",");

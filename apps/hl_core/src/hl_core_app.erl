@@ -78,7 +78,15 @@ seed_demo_data(TenantId) ->
     Token.
 
 print_welcome(Token) ->
-    ApiKey = hl_config:get_str("HL_API_KEY", "dev-secret"),
+    ApiKey = case hl_config:get_str("HL_API_KEY", "") of
+        "" ->
+            case hl_config:get_str("HL_ADMIN_KEY", "") of
+                ""       -> "<set HL_API_KEY or HL_ADMIN_KEY>";
+                AdminKey -> AdminKey
+            end;
+        Key ->
+            Key
+    end,
     Port   = hl_config:get_int("HL_PORT", 8080),
     io:format(
         "~n=======================================================~n"

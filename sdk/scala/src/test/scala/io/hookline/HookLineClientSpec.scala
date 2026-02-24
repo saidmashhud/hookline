@@ -45,7 +45,7 @@ object HookLineClientSpec extends ZIOSpecDefault:
     Method.GET / "v1" / "events" ->
       handler((_: Request) => jsonResp(Status.Ok, stubListJson)),
 
-    Method.GET / "health" ->
+    Method.GET / "healthz" ->
       handler((_: Request) => jsonResp(Status.Ok, """{"status":"ok"}""")),
 
     Method.DELETE / "v1" / "endpoints" / string("id") ->

@@ -25,8 +25,13 @@ lookup_scopes(Token) ->
 init_table() -> ok.
 
 init(Req0, Opts) ->
-    Method = cowboy_req:method(Req0),
-    handle(Method, Req0, Opts).
+    case hl_api_auth:require_scope(Req0, <<"admin">>) of
+        ok ->
+            Method = cowboy_req:method(Req0),
+            handle(Method, Req0, Opts);
+        {stop, _Code} ->
+            {ok, Req0, Opts}
+    end.
 
 %% POST /v1/apikeys  — create a key for the current tenant
 handle(<<"POST">>, Req0, Opts) ->

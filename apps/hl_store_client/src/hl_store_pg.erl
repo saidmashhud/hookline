@@ -24,17 +24,17 @@
     nack_job/2,
     put_dlq/1,
     list_dlq/1,
-    requeue_dlq/1,
-    delete_dlq/1,
+    requeue_dlq/2,
+    delete_dlq/2,
     append_attempt/1,
     list_attempts/1,
     put_endpoint/1,
-    get_endpoint/1,
+    get_endpoint/2,
     list_endpoints/1,
-    delete_endpoint/1,
+    delete_endpoint/2,
     put_subscription/1,
     list_subscriptions/1,
-    delete_subscription/1,
+    delete_subscription/2,
     compact/1,
     queue_stats/1
 ]).
@@ -67,11 +67,11 @@ put_dlq(Entry) ->
 list_dlq(TenantId) ->
     hl_store_client:list_dlq(TenantId).
 
-requeue_dlq(JobId) ->
-    hl_store_client:requeue_dlq(JobId).
+requeue_dlq(TenantId, JobId) ->
+    hl_store_client:requeue_dlq(TenantId, JobId).
 
-delete_dlq(JobId) ->
-    hl_store_client:delete_dlq(JobId).
+delete_dlq(TenantId, JobId) ->
+    hl_store_client:delete_dlq(TenantId, JobId).
 
 append_attempt(Attempt) ->
     hl_store_client:append_attempt(Attempt).
@@ -82,14 +82,14 @@ list_attempts(Opts) ->
 put_endpoint(Endpoint) ->
     hl_store_client:put_endpoint(Endpoint).
 
-get_endpoint(EndpointId) ->
-    hl_store_client:get_endpoint(EndpointId).
+get_endpoint(TenantId, EndpointId) ->
+    hl_store_client:get_endpoint(TenantId, EndpointId).
 
 list_endpoints(TenantId) ->
     hl_store_client:list_endpoints(TenantId).
 
-delete_endpoint(EndpointId) ->
-    hl_store_client:delete_endpoint(EndpointId).
+delete_endpoint(TenantId, EndpointId) ->
+    hl_store_client:delete_endpoint(TenantId, EndpointId).
 
 put_subscription(Sub) ->
     hl_store_client:put_subscription(Sub).
@@ -97,8 +97,8 @@ put_subscription(Sub) ->
 list_subscriptions(TenantId) ->
     hl_store_client:list_subscriptions(TenantId).
 
-delete_subscription(SubscriptionId) ->
-    hl_store_client:delete_subscription(SubscriptionId).
+delete_subscription(TenantId, SubscriptionId) ->
+    hl_store_client:delete_subscription(TenantId, SubscriptionId).
 
 compact(RetentionSecs) ->
     hl_store_client:compact(RetentionSecs).

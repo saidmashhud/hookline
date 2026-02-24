@@ -11,17 +11,17 @@
     nack_job/2,
     put_dlq/1,
     list_dlq/1,
-    requeue_dlq/1,
-    delete_dlq/1,
+    requeue_dlq/2,
+    delete_dlq/2,
     append_attempt/1,
     list_attempts/1,
     put_endpoint/1,
-    get_endpoint/1,
+    get_endpoint/2,
     list_endpoints/1,
-    delete_endpoint/1,
+    delete_endpoint/2,
     put_subscription/1,
     list_subscriptions/1,
-    delete_subscription/1,
+    delete_subscription/2,
     compact/1,
     queue_stats/1,
     append_audit/3,
@@ -91,30 +91,42 @@ put_dlq(Entry) when is_map(Entry) ->
 list_dlq(TenantId) ->
     call(<<"store.list_dlq">>, #{<<"tenant_id">> => TenantId}).
 
-requeue_dlq(JobId) ->
-    call(<<"store.requeue_dlq">>, #{<<"job_id">> => JobId}).
+requeue_dlq(TenantId, JobId) ->
+    call(<<"store.requeue_dlq">>, #{
+        <<"tenant_id">> => TenantId,
+        <<"job_id">> => JobId
+    }).
 
-delete_dlq(JobId) ->
-    call(<<"store.delete_dlq">>, #{<<"job_id">> => JobId}).
+delete_dlq(TenantId, JobId) ->
+    call(<<"store.delete_dlq">>, #{
+        <<"tenant_id">> => TenantId,
+        <<"job_id">> => JobId
+    }).
 
 append_attempt(Attempt) when is_map(Attempt) ->
     call(<<"store.append_attempt">>, Attempt).
 
-%% Opts: #{job_id, event_id, endpoint_id, limit}
+%% Opts: #{tenant_id, job_id, event_id, endpoint_id, attempt_id, limit}
 list_attempts(Opts) when is_map(Opts) ->
     call(<<"store.list_attempts">>, Opts).
 
 put_endpoint(Endpoint) when is_map(Endpoint) ->
     call(<<"store.put_endpoint">>, Endpoint).
 
-get_endpoint(EndpointId) ->
-    call(<<"store.get_endpoint">>, #{<<"endpoint_id">> => EndpointId}).
+get_endpoint(TenantId, EndpointId) ->
+    call(<<"store.get_endpoint">>, #{
+        <<"tenant_id">> => TenantId,
+        <<"endpoint_id">> => EndpointId
+    }).
 
 list_endpoints(TenantId) ->
     call(<<"store.list_endpoints">>, #{<<"tenant_id">> => TenantId}).
 
-delete_endpoint(EndpointId) ->
-    call(<<"store.delete_endpoint">>, #{<<"endpoint_id">> => EndpointId}).
+delete_endpoint(TenantId, EndpointId) ->
+    call(<<"store.delete_endpoint">>, #{
+        <<"tenant_id">> => TenantId,
+        <<"endpoint_id">> => EndpointId
+    }).
 
 put_subscription(Sub) when is_map(Sub) ->
     call(<<"store.put_subscription">>, Sub).
@@ -122,8 +134,11 @@ put_subscription(Sub) when is_map(Sub) ->
 list_subscriptions(TenantId) ->
     call(<<"store.list_subscriptions">>, #{<<"tenant_id">> => TenantId}).
 
-delete_subscription(SubscriptionId) ->
-    call(<<"store.delete_subscription">>, #{<<"subscription_id">> => SubscriptionId}).
+delete_subscription(TenantId, SubscriptionId) ->
+    call(<<"store.delete_subscription">>, #{
+        <<"tenant_id">> => TenantId,
+        <<"subscription_id">> => SubscriptionId
+    }).
 
 compact(RetentionSecs) when is_integer(RetentionSecs) ->
     call(<<"store.compact">>, #{<<"retention_secs">> => RetentionSecs}).

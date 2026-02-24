@@ -16,6 +16,7 @@ __pycache__/
 site/
 .env
 *.log
+.artifacts/
 
 # Scala/sbt (bridge)
 bridge/target/

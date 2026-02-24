@@ -16,7 +16,12 @@ handle(_, Req0, Opts) ->
     {ok, Req, Opts}.
 
 handle_single(AttemptId, Req0, Opts) ->
-    case hl_store_client:list_attempts(#{<<"attempt_id">> => AttemptId, <<"limit">> => 1}) of
+    TId = get_tenant(Req0),
+    case hl_store_client:list_attempts(#{
+        <<"tenant_id">> => TId,
+        <<"attempt_id">> => AttemptId,
+        <<"limit">> => 1
+    }) of
         {ok, #{<<"items">> := [Item | _]}} ->
             reply_json(200, Item, Req0, Opts);
         {ok, #{<<"items">> := []}} ->
@@ -29,6 +34,7 @@ handle_single(AttemptId, Req0, Opts) ->
     end.
 
 handle_list(Req0, Opts) ->
+    TId        = get_tenant(Req0),
     QS         = cowboy_req:parse_qs(Req0),
     JobId      = proplists:get_value(<<"job_id">>,      QS, <<>>),
     EventId    = proplists:get_value(<<"event_id">>,    QS, <<>>),
@@ -36,6 +42,7 @@ handle_list(Req0, Opts) ->
     Limit      = qs_int(QS, <<"limit">>, 50),
 
     Filter = maps:filter(fun(_, V) -> V =/= <<>> end, #{
+        <<"tenant_id">>   => TId,
         <<"job_id">>      => JobId,
         <<"event_id">>    => EventId,
         <<"endpoint_id">> => EndpointId,
@@ -57,6 +64,10 @@ qs_int(QS, Key, Default) ->
         undefined -> Default;
         V -> try binary_to_integer(V) catch _:_ -> Default end
     end.
+
+get_tenant(Req) ->
+    maps:get(tenant_id, Req,
+             list_to_binary(hl_config:get_str("HL_TENANT_ID", "default"))).
 
 reply_json(Status, Body, Req, Opts) ->
     Resp = cowboy_req:reply(Status,

@@ -122,7 +122,7 @@ purge_tenant(TenantId) ->
                 SubId = maps:get(<<"subscription_id">>, Sub, undefined),
                 SubId =/= undefined andalso begin
                     catch hl_subscription_cache:remove(TenantId, SubId),
-                    catch hl_store_client:delete_subscription(SubId)
+                    catch hl_store_client:delete_subscription(TenantId, SubId)
                 end
             end, Subs);
         _ -> ok
@@ -133,7 +133,7 @@ purge_tenant(TenantId) ->
             lists:foreach(fun(Ep) ->
                 EpId = maps:get(<<"endpoint_id">>, Ep, undefined),
                 EpId =/= undefined andalso
-                    catch hl_store_client:delete_endpoint(EpId)
+                    catch hl_store_client:delete_endpoint(TenantId, EpId)
             end, Eps2);
         _ -> ok
     end,

@@ -41,17 +41,28 @@ forward(TenantId, Body) ->
                     ServiceToken = hl_config:get_str("HL_SERVICE_TOKEN", ""),
                     AuthHeader = case hl_config:get_str("HL_AUTH_MODE", "api_key") of
                         "service_token" when ServiceToken =/= "" ->
-                            [{"authorization", "Bearer " ++ ServiceToken}];
+                            {ok, [{"authorization", "Bearer " ++ ServiceToken}]};
+                        "service_token" ->
+                            {error, missing_service_token};
                         _ ->
-                            ApiKey = hl_config:get_str("HL_API_KEY", "dev-secret"),
-                            [{"authorization", "Bearer " ++ ApiKey}]
+                            case hl_config:get_str("HL_API_KEY", "") of
+                                "" ->
+                                    {error, missing_api_key};
+                                ApiKey ->
+                                    {ok, [{"authorization", "Bearer " ++ ApiKey}]}
+                            end
                     end,
-                    httpc:request(post,
-                        {Target,
-                         AuthHeader ++ [{"x-tenant-id", binary_to_list(TenantId)}],
-                         "application/json",
-                         Body},
-                        [{timeout, 5000}],
-                        [])
+                    case AuthHeader of
+                        {error, _} = Err ->
+                            Err;
+                        {ok, Headers} ->
+                            httpc:request(post,
+                                {Target,
+                                 Headers ++ [{"x-tenant-id", binary_to_list(TenantId)}],
+                                 "application/json",
+                                 Body},
+                                [{timeout, 5000}],
+                                [])
+                    end
             end
     end.

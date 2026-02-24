@@ -28,6 +28,7 @@ services:
       # Use this when Mashgate webhook-delivery is the sole caller.
       HL_AUTH_MODE: "${HL_AUTH_MODE:-api_key}"
       HL_SERVICE_TOKEN: "${HL_SERVICE_TOKEN:-}"
+      HL_EMBEDDED_MODE: "${HL_EMBEDDED_MODE:-false}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 10s
@@ -36,7 +37,6 @@ services:
       start_period: 20s
     networks:
       - hookline-net
-      - mashnet  # cross-stack: reachable as 'hookline:8080' by mashgate-webhook-delivery
 
 volumes:
   gp-data:
@@ -46,5 +46,3 @@ networks:
   hookline-net:
     name: hookline_network
     driver: bridge
-  mashnet:
-    external: true  # created by mashgate/infra/local/scripts/create-network.sh

@@ -30,10 +30,10 @@
 -callback list_dlq(TenantId :: binary()) ->
     {ok, map()} | {error, term()}.
 
--callback requeue_dlq(JobId :: binary()) ->
+-callback requeue_dlq(TenantId :: binary(), JobId :: binary()) ->
     {ok, map()} | {error, term()}.
 
--callback delete_dlq(JobId :: binary()) ->
+-callback delete_dlq(TenantId :: binary(), JobId :: binary()) ->
     {ok, map()} | {error, term()}.
 
 -callback append_attempt(Attempt :: map()) ->
@@ -45,13 +45,13 @@
 -callback put_endpoint(Endpoint :: map()) ->
     {ok, map()} | {error, term()}.
 
--callback get_endpoint(EndpointId :: binary()) ->
+-callback get_endpoint(TenantId :: binary(), EndpointId :: binary()) ->
     {ok, map()} | {error, term()}.
 
 -callback list_endpoints(TenantId :: binary()) ->
     {ok, map()} | {error, term()}.
 
--callback delete_endpoint(EndpointId :: binary()) ->
+-callback delete_endpoint(TenantId :: binary(), EndpointId :: binary()) ->
     {ok, map()} | {error, term()}.
 
 -callback put_subscription(Sub :: map()) ->
@@ -60,7 +60,7 @@
 -callback list_subscriptions(TenantId :: binary()) ->
     {ok, map()} | {error, term()}.
 
--callback delete_subscription(SubscriptionId :: binary()) ->
+-callback delete_subscription(TenantId :: binary(), SubscriptionId :: binary()) ->
     {ok, map()} | {error, term()}.
 
 -callback compact(RetentionSecs :: integer()) ->

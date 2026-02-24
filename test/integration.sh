@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # HookLine integration smoke test
-# Usage: HL_URL=http://localhost:8080 HL_API_KEY=dev-secret ./test/integration.sh
+# Usage: HL_URL=http://localhost:8080 HL_API_KEY=<api-key> ./test/integration.sh
 set -euo pipefail
 
 HL_URL="${HL_URL:-http://localhost:8080}"
-HL_API_KEY="${HL_API_KEY:-dev-secret}"
+HL_API_KEY="${HL_API_KEY:?HL_API_KEY is required}"
 PASS=0; FAIL=0
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }

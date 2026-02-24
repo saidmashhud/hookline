@@ -64,7 +64,7 @@ handle(<<"GET">>, Req0, Opts) ->
                     {ok, Req0, Opts}
             end;
         EndpointId ->
-            case hl_store_client:get_endpoint(EndpointId) of
+            case hl_store_client:get_endpoint(TId, EndpointId) of
                 {ok, #{<<"endpoint">> := EpRaw}} ->
                     Ep = case EpRaw of
                         B when is_binary(B) -> jsx:decode(B, [return_maps]);
@@ -92,7 +92,7 @@ handle(<<"PATCH">>, Req0, Opts) ->
         TId = get_tenant(Req1),
         case jsx:decode(Body, [return_maps]) of
             Delta when is_map(Delta) ->
-                case hl_store_client:get_endpoint(EndpointId) of
+                case hl_store_client:get_endpoint(TId, EndpointId) of
                     {ok, #{<<"endpoint">> := EpRaw}} ->
                         Existing = case EpRaw of
                             B when is_binary(B) -> jsx:decode(B, [return_maps]);
@@ -132,16 +132,20 @@ handle(<<"PATCH">>, Req0, Opts) ->
 
 %% DELETE /v1/endpoints/:id
 handle(<<"DELETE">>, Req0, Opts) ->
+    TId = get_tenant(Req0),
     case cowboy_req:binding(id, Req0) of
         undefined ->
             hl_api_error:reply(Req0, 400, validation_error, <<"endpoint id required">>),
             {ok, Req0, Opts};
         EndpointId ->
-            case hl_store_client:delete_endpoint(EndpointId) of
+            case hl_store_client:delete_endpoint(TId, EndpointId) of
                 {ok, _} ->
                     hl_tenant_manager:stop_actor(EndpointId),
                     Req = cowboy_req:reply(204, #{}, <<>>, Req0),
                     {ok, Req, Opts};
+                {error, <<"not found">>} ->
+                    hl_api_error:reply(Req0, 404, not_found, <<"Endpoint not found">>),
+                    {ok, Req0, Opts};
                 {error, R} ->
                     hl_api_error:reply(Req0, 500, store_error,
                         list_to_binary(io_lib:format("~p", [R]))),

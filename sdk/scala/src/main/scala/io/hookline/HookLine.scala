@@ -10,17 +10,17 @@ object HookLine:
 
   private val HmacAlgo      = "HmacSHA256"
   private val SignaturePrefix = "v1="
-  private val MaxAgeSeconds   = 300L // 5 minutes
+  private val MaxAgeMillis    = 300000L // 5 minutes
 
   /** Verify the HMAC-SHA256 signature on an incoming webhook.
    *
-   *  Header format:   `HookLine-Signature: v1=<hex>`
-   *  Header timestamp: `HookLine-Timestamp: <unix-seconds>`
+   *  Header format:   `x-gp-signature: v1=<hex>`
+   *  Header timestamp: `x-gp-timestamp: <unix-milliseconds>`
    *  Signed payload:  `{timestamp}.{rawBody}`
    *
    *  @param secret    Endpoint secret (UTF-8 string)
-   *  @param timestamp Value of the `HookLine-Timestamp` header
-   *  @param signature Value of the `HookLine-Signature` header
+   *  @param timestamp Value of the `x-gp-timestamp` header
+   *  @param signature Value of the `x-gp-signature` header
    *  @param body      Raw request body bytes
    *  @return          `true` if signature is valid and not expired
    */
@@ -33,8 +33,8 @@ object HookLine:
     try
       // Reject expired timestamps (replay protection)
       val ts = timestamp.toLong
-      val now = System.currentTimeMillis() / 1000L
-      if math.abs(now - ts) > MaxAgeSeconds then return false
+      val now = System.currentTimeMillis()
+      if math.abs(now - ts) > MaxAgeMillis then return false
 
       // Strip the "v1=" prefix
       if !signature.startsWith(SignaturePrefix) then return false

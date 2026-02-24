@@ -36,8 +36,13 @@ endpoint registration and subscription management, and calls HookLine with a
 HL_AUTH_MODE=service_token \
 HL_SERVICE_TOKEN=<shared-secret> \
 HL_SINGLE_TENANT=false \
+HL_EMBEDDED_MODE=true \
 docker compose up -d
 ```
+
+When `HL_EMBEDDED_MODE=true`, the service token is restricted to data-plane
+scopes only — admin operations (`/v1/tenants`, `/v1/admin`, `/v1/apikeys`)
+return 403, and the `/console` UI is blocked.
 
 Mashgate's `mg-events` service uses this mode — it stores endpoint/subscription
 metadata in its own PostgreSQL database and uses HookLine purely as the delivery
@@ -115,6 +120,17 @@ gp inbox create
 
 ---
 
+## W3C Trace Context
+
+HookLine propagates [W3C Trace Context](https://www.w3.org/TR/trace-context/) headers through the delivery pipeline. Include `traceparent` (and optionally `tracestate`) when publishing events — they will be forwarded in webhook delivery requests.
+
+```bash
+curl -X POST http://localhost:8080/v1/events \
+  -H "Authorization: Bearer dev-secret" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
+  -d '{"topic":"orders.created","payload":{"order_id":"123"}}'
+```
+
 ## Webhook Signature Verification
 
 Every request includes:
@@ -123,6 +139,8 @@ Every request includes:
 - `X-GP-Delivery-Id` — delivery attempt identifier
 - `X-GP-Timestamp` — Unix timestamp in milliseconds
 - `X-GP-Signature` — HMAC-SHA256 signature
+- `traceparent` — W3C Trace Context (if provided on publish)
+- `tracestate` — W3C Trace Context (if provided on publish)
 
 **Signature format:** `v1=<hex_hmac_sha256(secret, "{timestamp}.{body}")>`
 
@@ -181,7 +199,7 @@ def webhook():
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HL_LISTEN_ADDR` | `:8080` | HTTP listen address |
-| `HL_API_KEY` | `dev-secret` | API key (single-tenant mode) |
+| `HL_API_KEY` | — | API key (required in `api_key` mode unless `HL_ADMIN_KEY` is set) |
 | `HL_TENANT_ID` | `default` | Tenant ID (single-tenant mode) |
 | `HL_SINGLE_TENANT` | `true` | Single vs multi-tenant mode |
 | `HL_STORE_SOCKET` | `/tmp/gp_store.sock` | Path to C store daemon socket |
@@ -189,6 +207,9 @@ def webhook():
 | `HL_RETRY_MAX_ATTEMPTS` | `10` | Max delivery attempts |
 | `HL_RETENTION_SECS` | `604800` | Event retention (7 days) |
 | `HL_DELIVERY_WORKERS` | `20` | Concurrent delivery workers |
+| `HL_AUTH_MODE` | `api_key` | Auth mode: `api_key` or `service_token` |
+| `HL_SERVICE_TOKEN` | — | Shared secret for `service_token` auth mode |
+| `HL_EMBEDDED_MODE` | `false` | Restrict to data-plane scopes (blocks admin + console) |
 
 ---
 
@@ -218,6 +239,7 @@ Key endpoints:
 | `POST` | `/v1/replay` | Replay events |
 | `GET`  | `/v1/replay/:id` | Replay status |
 | `GET`  | `/v1/stream` | SSE event stream |
+| `GET`  | `/v1/health/embedded` | Embedded mode status |
 | `GET`  | `/healthz` | Liveness probe |
 | `GET`  | `/readyz` | Readiness probe |
 | `GET`  | `/metrics` | Prometheus metrics |
@@ -274,7 +296,16 @@ rebar3 compile
 rebar3 eunit
 
 # Run integration tests (requires running instance)
-./test/integration.sh
+HL_URL=http://localhost:8080 HL_API_KEY=<api-key> ./test/integration.sh
+
+# Run embedded mode tests (requires HL_EMBEDDED_MODE=true)
+HL_URL=http://localhost:8080 HL_SERVICE_TOKEN=super-secret ./test/embedded-mode.sh
+
+# Run trace propagation tests
+HL_URL=http://localhost:8080 HL_API_KEY=<api-key> ./test/trace-propagation.sh
+
+# Run production-readiness gate (load + soak + chaos)
+HL_URL=http://localhost:8080 HL_AUTH_MODE=api_key HL_API_KEY=<api-key> ./test/production-readiness.sh
 
 # Start locally
 docker-compose up

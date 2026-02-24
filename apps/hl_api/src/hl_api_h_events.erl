@@ -23,7 +23,10 @@ handle(<<"POST">>, Req0, Opts) ->
             {ok, Req1, Opts};
         {ok, Body, Req1} ->
             TId = get_tenant(Req1),
-            handle_post(TId, Body, Req1, Opts)
+            %% Extract W3C Trace Context from inbound request for end-to-end propagation
+            Traceparent = cowboy_req:header(<<"traceparent">>, Req1, <<>>),
+            Tracestate  = cowboy_req:header(<<"tracestate">>, Req1, <<>>),
+            handle_post(TId, Body, Req1, Opts, Traceparent, Tracestate)
     end;
 
 %% GET /v1/events/:id  or  GET /v1/events?limit=N&cursor=...&from_ms=...&to_ms=...&topic=...
@@ -84,13 +87,13 @@ handle(_, Req0, Opts) ->
     {ok, Req, Opts}.
 
 %% Route POST to leader (local publish) or proxy to leader node.
-handle_post(TenantId, Body, Req0, Opts) ->
+handle_post(TenantId, Body, Req0, Opts, Traceparent, Tracestate) ->
     case hl_leader:is_leader() of
-        true  -> handle_publish_local(TenantId, Body, Req0, Opts);
+        true  -> handle_publish_local(TenantId, Body, Req0, Opts, Traceparent, Tracestate);
         false -> handle_publish_proxy(TenantId, Body, Req0, Opts)
     end.
 
-handle_publish_local(TId, Body, Req1, Opts) ->
+handle_publish_local(TId, Body, Req1, Opts, Traceparent, Tracestate) ->
     case hl_core:check_queue_depth(TId) of
         {error, overloaded} ->
             Req2 = cowboy_req:set_resp_header(<<"retry-after">>, <<"5">>, Req1),
@@ -100,7 +103,18 @@ handle_publish_local(TId, Body, Req1, Opts) ->
         ok ->
             case jsx:decode(Body, [return_maps]) of
                 Map when is_map(Map) ->
-                    case hl_core:publish_event(TId, Map) of
+                    %% Inject trace context into event metadata for delivery propagation
+                    Map2 = case Traceparent of
+                        <<>> -> Map;
+                        _    ->
+                            TraceMap = case Tracestate of
+                                <<>> -> #{<<"traceparent">> => Traceparent};
+                                _    -> #{<<"traceparent">> => Traceparent,
+                                          <<"tracestate">> => Tracestate}
+                            end,
+                            Map#{<<"_trace">> => TraceMap}
+                    end,
+                    case hl_core:publish_event(TId, Map2) of
                         {ok, Event} ->
                             reply_json(201, Event, Req1, Opts);
                         {ok, Event, deduped} ->

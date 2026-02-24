@@ -9,10 +9,13 @@ from hookline import HookLineClient
 
 # Example values (replace with real ones from your environment)
 raw_body = b'{"topic":"orders.created","data":{"order_id":"ord_123"}}'
-signature_header = "sha256=abc123..."  # value of x-gp-signature request header
+timestamp_header = "1710000000000"  # value of x-gp-timestamp request header
+signature_header = "v1=abc123..."  # value of x-gp-signature request header
 endpoint_secret = "my-endpoint-secret"
 
-is_valid = HookLineClient.verify_signature(raw_body, signature_header, endpoint_secret)
+is_valid = HookLineClient.verify_signature(
+    raw_body, timestamp_header, signature_header, endpoint_secret
+)
 if is_valid:
     print("Signature is valid — process the event")
 else:

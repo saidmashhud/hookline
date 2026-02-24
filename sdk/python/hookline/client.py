@@ -122,12 +122,20 @@ class HookLineClient:
         return self._request("POST", f"/v1/dlq/{job_id}/requeue")
 
     @staticmethod
-    def verify_signature(payload: bytes | str, signature: str, secret: str) -> bool:
-        """Verify an incoming webhook signature (HMAC-SHA256)."""
+    def verify_signature(
+        payload: bytes | str,
+        timestamp: str,
+        signature: str,
+        secret: str,
+    ) -> bool:
+        """Verify an incoming webhook signature using v1 + timestamp.body."""
+        if not timestamp or not signature.startswith("v1="):
+            return False
         if isinstance(payload, str):
             payload = payload.encode()
+        signed_payload = f"{timestamp}.".encode() + payload
         expected = hmac.new(
-            secret.encode(), payload, hashlib.sha256
+            secret.encode(), signed_payload, hashlib.sha256
         ).hexdigest()
-        sig = signature.removeprefix("sha256=")
+        sig = signature.removeprefix("v1=")
         return hmac.compare_digest(expected, sig)

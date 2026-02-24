@@ -325,6 +325,51 @@ static int test_dlq_put_list_delete(void) {
     return 0;
 }
 
+static int test_dlq_delete_tenant_isolation(void) {
+    hl_dlq_t dlq;
+    hl_dlq_init(&dlq);
+
+    hl_dlq_entry_t a = {0};
+    strncpy(a.job_id,      "job-a",       sizeof(a.job_id));
+    strncpy(a.event_id,    "evt-a",       sizeof(a.event_id));
+    strncpy(a.endpoint_id, "ep-a",        sizeof(a.endpoint_id));
+    strncpy(a.tenant_id,   "tenant-a",    sizeof(a.tenant_id));
+    strncpy(a.reason,      "http 500",    sizeof(a.reason));
+    a.attempt_count = 1;
+
+    hl_dlq_entry_t b = {0};
+    strncpy(b.job_id,      "job-b",       sizeof(b.job_id));
+    strncpy(b.event_id,    "evt-b",       sizeof(b.event_id));
+    strncpy(b.endpoint_id, "ep-b",        sizeof(b.endpoint_id));
+    strncpy(b.tenant_id,   "tenant-b",    sizeof(b.tenant_id));
+    strncpy(b.reason,      "timeout",     sizeof(b.reason));
+    b.attempt_count = 2;
+
+    ASSERT(hl_dlq_put(&dlq, &a) == 0);
+    ASSERT(hl_dlq_put(&dlq, &b) == 0);
+    ASSERT(dlq.count == 2);
+
+    ASSERT(hl_dlq_delete_tenant(&dlq, "job-a", "tenant-b") == -1);
+    ASSERT(dlq.count == 2);
+
+    ASSERT(hl_dlq_delete_tenant(&dlq, "job-a", "tenant-a") == 0);
+    ASSERT(dlq.count == 1);
+
+    hl_dlq_entry_t *out_a = NULL; int count_a = 0;
+    ASSERT(hl_dlq_list(&dlq, "tenant-a", &out_a, &count_a) == 0);
+    ASSERT(count_a == 0);
+    free(out_a);
+
+    hl_dlq_entry_t *out_b = NULL; int count_b = 0;
+    ASSERT(hl_dlq_list(&dlq, "tenant-b", &out_b, &count_b) == 0);
+    ASSERT(count_b == 1);
+    ASSERT(strcmp(out_b[0].job_id, "job-b") == 0);
+    free(out_b);
+
+    hl_dlq_free(&dlq);
+    return 0;
+}
+
 /* --- main --- */
 int main(void) {
     printf("=== GatePulse C Store Unit Tests ===\n\n");
@@ -352,6 +397,7 @@ int main(void) {
 
     printf("\nDLQ:\n");
     TEST(dlq_put_list_delete);
+    TEST(dlq_delete_tenant_isolation);
 
     printf("\n=== Results: %d/%d passed", tests_pass, tests_run);
     if (tests_fail > 0) printf(" (%d FAILED)", tests_fail);

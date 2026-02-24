@@ -29,26 +29,21 @@ All existing HookLine endpoints (`/v1/events`, `/v1/endpoints`, `/v1/subscriptio
 | `HL_AUTH_MODE` | yes | Set to `service_token` to enable embedded mode |
 | `HL_SERVICE_TOKEN` | yes | Shared secret; must match `HOOKLINE_SERVICE_TOKEN` in Mashgate |
 | `HL_SINGLE_TENANT` | no | Set to `false` for multi-tenant embedded mode (default: `true`) |
+| `HL_EMBEDDED_MODE` | no | Set to `true` to restrict scopes to data-plane only. Blocks admin routes and console access. |
 | `HL_WRITER_ID` | no | Erlang node name allowed to accept writes directly (e.g. `hookline@node1`). When set, non-writer nodes proxy event publishes to the writer. Omit in single-node deployments. |
 | `HL_PUBLIC_URL` | when clustered | Public HTTP URL of the writer node; used by the leader proxy |
 
 ### Mashgate webhook-delivery environment
 
 ```env
-HOOKLINE_URL=http://hookline:8080
+HOOKLINE_URL=http://host.docker.internal:8080
 HOOKLINE_AUTH_MODE=service_token
 HOOKLINE_SERVICE_TOKEN=<shared-secret>   # must match HL_SERVICE_TOKEN
 ```
 
 ## Quick start
 
-### 1. Create the shared network
-
-```bash
-./mashgate/infra/local/scripts/create-network.sh
-```
-
-### 2. Start HookLine in embedded mode
+### 1. Start HookLine in embedded mode
 
 ```bash
 HL_AUTH_MODE=service_token \
@@ -57,7 +52,7 @@ HL_SINGLE_TENANT=false \
 docker compose -f hookline/docker-compose.yml up -d
 ```
 
-### 3. Start Mashgate
+### 2. Start Mashgate
 
 ```bash
 HOOKLINE_AUTH_MODE=service_token \
@@ -65,7 +60,7 @@ HOOKLINE_SERVICE_TOKEN=super-secret \
 docker compose -f mashgate/infra/local/docker-compose.yml up -d
 ```
 
-### 4. Verify embedded mode is active
+### 3. Verify embedded mode is active
 
 ```bash
 curl http://localhost:8080/v1/health/embedded
@@ -77,7 +72,7 @@ curl http://localhost:8080/v1/health/embedded
 In embedded mode, Mashgate creates HookLine tenants via `POST /v1/tenants` using the service token:
 
 ```bash
-curl -X POST http://hookline:8080/v1/tenants \
+curl -X POST http://localhost:8080/v1/tenants \
   -H "Authorization: Bearer $HL_SERVICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"id": "tenant-uuid", "name": "Acme Corp"}'
@@ -88,7 +83,7 @@ After creation, HookLine immediately warms the subscription cache and boots deli
 ## Sending events (Mashgate → HookLine)
 
 ```bash
-curl -X POST http://hookline:8080/v1/events \
+curl -X POST http://localhost:8080/v1/events \
   -H "Authorization: Bearer $HL_SERVICE_TOKEN" \
   -H "X-Tenant-Id: tenant-uuid" \
   -H "Content-Type: application/json" \
@@ -108,11 +103,42 @@ When `HL_AUTH_MODE=api_key` (default), the `service_token` path is completely in
 - `X-Tenant-Id` header is ignored for auth (it may still appear as a pass-through)
 - All existing API key / ADMIN key behaviour is unchanged
 
+## Scope restrictions (`HL_EMBEDDED_MODE=true`)
+
+When `HL_EMBEDDED_MODE=true`, the service token is restricted to data-plane scopes:
+
+| Scope | Operations |
+|-------|-----------|
+| `events.publish` | POST /v1/events |
+| `events.read` | GET /v1/events, GET /v1/events/:id |
+| `endpoints.read` | GET /v1/endpoints |
+| `endpoints.write` | POST/PATCH/DELETE /v1/endpoints |
+| `subscriptions.read` | GET /v1/subscriptions |
+| `subscriptions.write` | POST/DELETE /v1/subscriptions |
+| `deliveries.read` | GET /v1/deliveries |
+| `deliveries.retry` | POST /v1/replay |
+| `dlq.read` | GET /v1/dlq |
+| `dlq.replay` | POST /v1/dlq/:id/requeue, DELETE /v1/dlq/:id |
+| `stream.subscribe` | GET /v1/stream (SSE) |
+
+**Blocked in embedded mode:**
+- `/v1/tenants/*` → 403 (requires `admin` scope)
+- `/v1/apikeys/*` → 403 (requires `admin` scope)
+- `/v1/admin/*` → 403 (requires `admin` scope)
+- `/console` → blocked by auth middleware (not public in embedded mode)
+
+Without `HL_EMBEDDED_MODE=true`, the service token has full access (`*` scope) — all operations are permitted.
+
+### Console lockdown
+
+In standalone mode (`HL_EMBEDDED_MODE=false` or unset), the `/console` path serves the HookLine web UI without authentication. In embedded mode, the `/console` path is blocked by the auth middleware — it requires authentication that the console client cannot provide when HookLine is behind Mashgate. This prevents unauthorized access to the admin UI.
+
 ## Security considerations
 
 - **Rotate `HL_SERVICE_TOKEN`** on a schedule. Both HookLine and Mashgate must be updated atomically (rolling restart with the old token still accepted is recommended — add a `HL_SERVICE_TOKEN_OLD` grace period if needed).
-- The `mashnet` Docker network isolates HookLine from the public internet. Port `8080` should **not** be published in production — only `mashgate-webhook-delivery` needs network access to HookLine.
+- Keep HookLine reachable only inside trusted infrastructure in production; local dev uses host port `8080` so Mashgate containers can reach it via `host.docker.internal`.
 - In `service_token` mode, **any caller with the token** can write to **any tenant** by changing `X-Tenant-Id`. The network boundary is the primary defence.
+- Use `HL_EMBEDDED_MODE=true` in production to enforce least-privilege for the service token.
 
 ## Single-writer mode (`HL_WRITER_ID`)
 

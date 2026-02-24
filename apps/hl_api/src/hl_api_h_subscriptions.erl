@@ -67,11 +67,14 @@ handle(<<"DELETE">>, Req0, Opts) ->
             hl_api_error:reply(Req0, 400, validation_error, <<"subscription_id required">>),
             {ok, Req0, Opts};
         SubId ->
-            case hl_store_client:delete_subscription(SubId) of
+            case hl_store_client:delete_subscription(TId, SubId) of
                 {ok, _} ->
                     hl_subscription_cache:remove(TId, SubId),
                     Req = cowboy_req:reply(204, #{}, <<>>, Req0),
                     {ok, Req, Opts};
+                {error, <<"not found">>} ->
+                    hl_api_error:reply(Req0, 404, not_found, <<"Subscription not found">>),
+                    {ok, Req0, Opts};
                 {error, R} ->
                     hl_api_error:reply(Req0, 500, store_error,
                         list_to_binary(io_lib:format("~p", [R]))),

@@ -88,10 +88,11 @@ deliver(Job) ->
                             Transform  = maps:get(<<"transform">>, Job, null),
                             FinalEvent = hl_core_transform:apply(Transform, Event),
                             PayloadBin = build_payload(FinalEvent, Job, AttemptId),
+                            TraceCtx   = maps:get(<<"_trace">>, Event, #{}),
                             Result = try
                                 do_http_post(URL, Secret, PayloadBin,
                                              EventId, Topic, AttemptId, TenantId,
-                                             TimeoutMs, EpHeaders)
+                                             TimeoutMs, EpHeaders, TraceCtx)
                             catch
                                 _:Err -> {error, Err}
                             end,
@@ -140,11 +141,12 @@ deliver_actor(Job, Endpoint) ->
     EventId   = maps:get(<<"event_id">>, Job),
     Topic     = maps:get(<<"topic">>, Event, <<>>),
 
+    TraceCtx = maps:get(<<"_trace">>, Event, #{}),
     StartMs  = erlang:system_time(millisecond),
     T0       = erlang:monotonic_time(millisecond),
     HttpResult = try
         do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId,
-                     TenantId, TimeoutMs, EpHeaders)
+                     TenantId, TimeoutMs, EpHeaders, TraceCtx)
     catch
         _:Err -> {error, Err}
     end,
@@ -193,7 +195,7 @@ make_actor_dlq(Job, Reason) ->
 fetch_event_and_endpoint(TenantId, EventId, EndpointId) ->
     case hl_store_client:get_event(TenantId, EventId) of
         {ok, #{<<"event">> := EventRaw}} ->
-            case hl_store_client:get_endpoint(EndpointId) of
+            case hl_store_client:get_endpoint(TenantId, EndpointId) of
                 {ok, #{<<"endpoint">> := EpRaw}} ->
                     Event    = decode_json(EventRaw),
                     Endpoint = decode_json(EpRaw),
@@ -218,6 +220,11 @@ build_payload(Event, Job, AttemptId) ->
 
 do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
              TimeoutMs, EpHeaders) ->
+    do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
+                 TimeoutMs, EpHeaders, #{}).
+
+do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
+             TimeoutMs, EpHeaders, TraceCtx) ->
     Ts = erlang:system_time(millisecond),
     TsBin = integer_to_binary(Ts),
 
@@ -225,6 +232,12 @@ do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
         <<>> -> undefined;
         S    -> hl_core_signature:header_value(S, Ts, PayloadBin)
     end,
+
+    %% W3C Trace Context propagation
+    TraceHeaders = [{K, V} || {K, V} <- [
+        {<<"traceparent">>, maps:get(<<"traceparent">>, TraceCtx, <<>>)},
+        {<<"tracestate">>,  maps:get(<<"tracestate">>, TraceCtx, <<>>)}
+    ], V =/= <<>>],
 
     Headers = [
         {<<"content-type">>,     <<"application/json">>},
@@ -237,7 +250,7 @@ do_http_post(URL, Secret, PayloadBin, EventId, Topic, AttemptId, _TenantId,
               undefined -> [];
               Sig -> [{<<"x-gp-signature">>, Sig}]
           end
-    ] ++ EpHeaders,
+    ] ++ TraceHeaders ++ EpHeaders,
     http_post(URL, PayloadBin, Headers, TimeoutMs).
 
 http_post(URL, Body, Headers, TimeoutMs) ->

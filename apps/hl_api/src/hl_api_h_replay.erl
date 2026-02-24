@@ -21,8 +21,9 @@ handle(<<"POST">>, Req0, Opts) ->
     {ok, Body, Req1} = cowboy_req:read_body(Req0),
     TId = get_tenant(Req1),
     case jsx:decode(Body, [return_maps]) of
-        #{<<"event_id">> := EventId} ->
-            replay_single(TId, EventId, Req1, Opts);
+        #{<<"event_id">> := EventId} = Params ->
+            EndpointId = maps:get(<<"endpoint_id">>, Params, undefined),
+            replay_single(TId, EventId, EndpointId, Req1, Opts);
         Params when is_map(Params) ->
             replay_batch(TId, Params, Req1, Opts);
         _ ->
@@ -50,11 +51,11 @@ handle(_, Req0, Opts) ->
     Req = cowboy_req:reply(405, #{}, <<>>, Req0),
     {ok, Req, Opts}.
 
-replay_single(TId, EventId, Req, Opts) ->
+replay_single(TId, EventId, EndpointId, Req, Opts) ->
     case hl_store_client:get_event(TId, EventId) of
         {ok, #{<<"event">> := EventRaw}} ->
             Event = decode_json(EventRaw),
-            do_replay_events(TId, [Event], undefined, Req, Opts);
+            do_replay_events(TId, [Event], EndpointId, Req, Opts);
         {error, _} ->
             hl_api_error:reply(Req, 404, not_found, <<"Event not found">>),
             {ok, Req, Opts}

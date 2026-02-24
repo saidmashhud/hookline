@@ -8,6 +8,10 @@ info:
     ```
     Authorization: Bearer <api-key>
     ```
+
+    Webhook deliveries sent by HookLine include:
+    - `x-gp-timestamp`: Unix timestamp in milliseconds
+    - `x-gp-signature`: `v1=<hex(hmac_sha256(secret, "{timestamp}.{body}"))>`
   version: "0.1.0"
   license:
     name: Apache 2.0
@@ -166,6 +170,27 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+    patch:
+      tags: [Endpoints]
+      summary: Update endpoint fields
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EndpointPatch"
+      responses:
+        "200":
+          description: Endpoint updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Endpoint"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
     delete:
       tags: [Endpoints]
       summary: Delete endpoint
@@ -240,6 +265,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeliveryList"
 
+  /v1/deliveries/{id}:
+    get:
+      tags: [Deliveries]
+      summary: Get delivery attempt by ID
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Delivery attempt
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /v1/dlq:
     get:
       tags: [DLQ]
@@ -253,15 +294,6 @@ paths:
                 $ref: "#/components/schemas/DLQList"
 
   /v1/dlq/{id}:
-    post:
-      tags: [DLQ]
-      summary: Requeue a DLQ entry
-      parameters:
-        - $ref: "#/components/parameters/Id"
-      responses:
-        "200":
-          description: Requeued
-
     delete:
       tags: [DLQ]
       summary: Delete a DLQ entry
@@ -270,6 +302,16 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  /v1/dlq/{id}/requeue:
+    post:
+      tags: [DLQ]
+      summary: Requeue a DLQ entry
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Requeued
 
   /v1/replay:
     post:
@@ -285,6 +327,9 @@ paths:
               properties:
                 event_id:
                   type: string
+                endpoint_id:
+                  type: string
+                  description: Optional endpoint filter for targeted replay
       responses:
         "200":
           description: Replay jobs created
@@ -483,6 +528,23 @@ components:
           description: HMAC signing secret
         description:
           type: string
+
+    EndpointPatch:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        timeout_ms:
+          type: integer
+        max_retries:
+          type: integer
 
     Endpoint:
       allOf:

@@ -68,3 +68,19 @@ int hl_dlq_delete(hl_dlq_t *dlq, const char *job_id) {
     }
     return -1;
 }
+
+int hl_dlq_delete_tenant(hl_dlq_t *dlq, const char *job_id, const char *tenant_id) {
+    hl_dlq_entry_t **pp = &dlq->head;
+    while (*pp) {
+        if (strcmp((*pp)->job_id, job_id) == 0 &&
+            (!tenant_id || !tenant_id[0] || strcmp((*pp)->tenant_id, tenant_id) == 0)) {
+            hl_dlq_entry_t *del = *pp;
+            *pp = del->next;
+            free(del);
+            dlq->count--;
+            return 0;
+        }
+        pp = &(*pp)->next;
+    }
+    return -1;
+}

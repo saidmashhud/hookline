@@ -1,7 +1,8 @@
 organization := "io.hookline"
 name         := "hookline-sdk"
 version      := "0.2.0"
-scalaVersion := "3.4.2"
+scalaVersion := "3.3.4"
+crossScalaVersions := Seq("3.3.4", "3.4.2")
 
 libraryDependencies ++= Seq(
   "dev.zio" %% "zio"          % "2.1.9",
