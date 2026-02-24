@@ -44,7 +44,16 @@ validate_event(TenantId, RawMap) when is_binary(TenantId), is_map(RawMap) ->
 %% Uses ETS subscription cache — zero C store round-trips.
 route_event(TenantId, EventMap) ->
     Topic   = maps:get(<<"topic">>, EventMap),
-    Matched = hl_subscription_cache:match(TenantId, Topic),
+    Matched0 = hl_subscription_cache:match(TenantId, Topic),
+    Matched = case Matched0 of
+        [] ->
+            %% Startup/restart race: event can arrive before cache warm-up.
+            %% Reload tenant cache once on miss so first publish is not dropped.
+            _ = catch hl_subscription_cache:load_tenant_sync(TenantId),
+            hl_subscription_cache:match(TenantId, Topic);
+        _ ->
+            Matched0
+    end,
     Filtered = [S || S <- Matched,
                      hl_core_filter:matches(
                          maps:get(<<"filter">>, S, undefined), EventMap)],

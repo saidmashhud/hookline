@@ -12,7 +12,8 @@
     endpoint_id :: binary(),
     endpoint    :: map(),
     queue       :: queue:queue(),
-    in_flight   :: non_neg_integer()
+    in_flight   :: non_neg_integer(),
+    rate_timer  :: reference() | undefined
 }).
 
 start_link(Endpoint) ->
@@ -25,7 +26,8 @@ init([Endpoint]) ->
         endpoint_id = EpId,
         endpoint    = Endpoint,
         queue       = queue:new(),
-        in_flight   = 0
+        in_flight   = 0,
+        rate_timer  = undefined
     }}.
 
 %% ── Enqueue a new job (from hl_core:create_delivery_jobs) ───────────────────
@@ -54,10 +56,16 @@ handle_call(_Req, _From, S) -> {reply, ok, S}.
 
 handle_info({requeue, Job}, S) ->
     {noreply, maybe_dispatch(S#state{queue = queue:in(Job, S#state.queue)})};
+handle_info(rate_retry, S) ->
+    {noreply, maybe_dispatch(S#state{rate_timer = undefined})};
 
 handle_info(_Msg, S) -> {noreply, S}.
 
 terminate(_Reason, S) ->
+    case S#state.rate_timer of
+        undefined -> ok;
+        TRef      -> erlang:cancel_timer(TRef)
+    end,
     hl_endpoint_registry:unregister(S#state.endpoint_id),
     ok.
 
@@ -86,12 +94,19 @@ maybe_dispatch(S) ->
     Enabled     = maps:get(<<"enabled">>, S#state.endpoint, true),
     MaxInFlight = maps:get(<<"max_in_flight">>, S#state.endpoint, 10),
     RateRPS     = maps:get(<<"rate_limit_rps">>, S#state.endpoint, 100),
-    case Enabled andalso
-         S#state.in_flight < MaxInFlight andalso
-         not queue:is_empty(S#state.queue) andalso
-         hl_delivery_rate:check(S#state.endpoint_id, RateRPS) =:= ok of
-        true  -> maybe_dispatch(dispatch_next(S));
-        false -> S
+    CanAttempt = Enabled andalso
+                 S#state.in_flight < MaxInFlight andalso
+                 not queue:is_empty(S#state.queue),
+    case CanAttempt of
+        false ->
+            maybe_cancel_rate_timer(S);
+        true ->
+            case hl_delivery_rate:check(S#state.endpoint_id, RateRPS) of
+                ok ->
+                    maybe_dispatch(dispatch_next(S));
+                {error, rate_limited} ->
+                    maybe_schedule_rate_retry(S)
+            end
     end.
 
 dispatch_next(S) ->
@@ -103,6 +118,25 @@ dispatch_next(S) ->
                         {delivery_done, maps:get(<<"job_id">>, Job), Result})
     end),
     S#state{queue = Q2, in_flight = S#state.in_flight + 1}.
+
+maybe_schedule_rate_retry(#state{rate_timer = undefined} = S) ->
+    NowMs = erlang:system_time(millisecond),
+    DelayMs = 1001 - (NowMs rem 1000),
+    TRef = erlang:send_after(DelayMs, self(), rate_retry),
+    S#state{rate_timer = TRef};
+maybe_schedule_rate_retry(S) ->
+    S.
+
+maybe_cancel_rate_timer(#state{rate_timer = undefined} = S) ->
+    S;
+maybe_cancel_rate_timer(S) ->
+    case queue:is_empty(S#state.queue) of
+        true ->
+            erlang:cancel_timer(S#state.rate_timer),
+            S#state{rate_timer = undefined};
+        false ->
+            S
+    end.
 
 handle_result({ok, _Code}, S) ->
     hl_delivery_metrics:inc_delivered(
